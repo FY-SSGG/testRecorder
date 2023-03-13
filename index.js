@@ -2,7 +2,7 @@ import dotenv from 'dotenv';
 dotenv.config();
 import fs from "fs";
 import { promisify } from 'util';
-import mainAsync from './app.js';
+//import mainAsync from './index_you.js';
 //import { fork } from 'child_process';
 
 
@@ -82,15 +82,15 @@ async function start() {
 
                 setTimeout(() => {
                     const event = {
-                        channelId: youtuber.channelId,
-                        channelName: youtuber.channelName,
-                        isStreamlink: true,
-                        beforeScheduledStartTime: null,
-                        beforeVideoId: null,
-                    }
-                    mainAsync(event);
-                    /* const childProcess = fork('./app.js');
-                    childProcess.send({ channelId: youtuber.channelId, channelName: youtuber.channelName }); */
+                            channelId: youtuber.channelId,
+                            channelName: youtuber.channelName,
+                            isStreamlink: true,
+                            beforeScheduledStartTime: null,
+                            beforeVideoId: null,
+                        }
+                        //mainAsync(event);
+                        /* const childProcess = fork('./app.js');
+                        childProcess.send({ channelId: youtuber.channelId, channelName: youtuber.channelName }); */
                 }, Math.random() * 5000); // 随机延时 0 到 5000 毫秒
 
             } else {
