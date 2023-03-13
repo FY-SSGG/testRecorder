@@ -59,7 +59,4 @@ const deleteMessage = (msg, times) => {
     }, times * 1000)
 }
 
-module.exports = {
-    tgmessage,
-    tgphoto,
-};
+export { tgmessage, tgphoto };

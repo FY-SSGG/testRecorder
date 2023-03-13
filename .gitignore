@@ -104,5 +104,4 @@ dist
 .tern-port
 config/config.json
 config/running.json
-.gitignore
 config/pid.json

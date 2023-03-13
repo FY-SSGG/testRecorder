@@ -5,7 +5,7 @@ import fs from 'fs';
 import moment from 'moment-timezone';
 import { spawn } from 'child_process';
 //import { promisify } from 'util';
-//import { tgnotice, tgphoto } from './tgnotice';
+import { tgmessage, tgphoto } from './index_tgnotice.js';
 
 moment.tz.setDefault('Asia/Shanghai');
 
@@ -24,14 +24,14 @@ const FORMAT = 'best';
 }); */
 
 
-const event = {
+/* const event = {
     channelId: 'UC1opHUrw8rvnsadT-iGp7Cg',
     channelName: 'MinatoAqua',
     isStreamlink: true,
     beforeScheduledStartTime: null,
     beforeVideoId: null,
 }
-mainAsync(event);
+mainAsync(event); */
 
 async function mainAsync(event) {
 
@@ -48,7 +48,7 @@ async function mainAsync(event) {
         const match = await getHttps(channelId);
         // 判断是否开播
         let timeout = await isLivingAsync(match, channelId, channelName, FORMAT, dir);
-        // 判断是否循环调用
+
         //判断是否循环调用（同步函数
         if (isChannelIdInConfigSync(channelId)) {
             console.log(`${channelName}--Loading-->>${timeout}\n`);
@@ -64,10 +64,12 @@ async function mainAsync(event) {
                         beforeVideoId: beforeVideoId,
                     }
                     mainAsync(newevent);
+
                 } else {
                     console.log(`${channelName}:stop`);
                 }
             }, timeout * 1000);
+
         } else {
             console.log(`${channelName}:stop`);
         }
@@ -110,7 +112,6 @@ async function mainAsync(event) {
         //默认5分钟获取一次
         let timeout = 2700;
 
-
         if (match && match[1]) {
             const playerResponse = JSON.parse(match[1]);
             //console.log(playerResponse);
@@ -139,8 +140,8 @@ async function mainAsync(event) {
                         timeout = timeMath(scheduledStartTime)
                         if (!(timeout === 3600.5) && (!(videoId === beforeVideoId) || !(scheduledStartTime === beforeScheduledStartTime))) {
                             beforeScheduledStartTime = scheduledStartTime;
-                            //let text = `<b>${author}</b> <code>>></code> 直播预告！\n时间 <code>:</code> <b>${starttime}</b>\n标题 <code>:</code> <i><a href="${liveUrl}">${title}</a></i>`;
-                            //tgphoto(coverUrl, text);
+                            let text = `<b>${author}</b> <code>>></code> 直播预告！\n时间 <code>:</code> <b>${starttime}</b>\n标题 <code>:</code> <i><a href="${liveUrl}">${title}</a></i>`;
+                            tgphoto(coverUrl, text);
 
                             console.log(author + '开始时间：' + starttime)
                         }
@@ -149,7 +150,7 @@ async function mainAsync(event) {
                     case "OK":
 
                         const isLive = playerResponse.videoDetails.isLive
-                            //tgphoto(coverUrl, `🟡 <b><a href="${url}">${author}</a></b> <code>>></code> ${isLive ? '直播开始！' : 'null！'}\n标题 <code>:</code> <i><a href="${liveUrl}">${title}</a></i>`);
+                        tgphoto(coverUrl, `🟡 <b><a href="${url}">${author}</a></b> <code>>></code> ${isLive ? '直播开始！' : 'null！'}\n标题 <code>:</code> <i><a href="${liveUrl}">${title}</a></i>`);
                         console.log(isLive ? `${author} 正在直播` : `${author} 没播\n`)
 
                         const timeId = moment().format('YYYYMMDD_HHmmssSSS')
@@ -158,7 +159,7 @@ async function mainAsync(event) {
                         const filePath = dir + '/' + channelName + '/' + timeId;
                         const filename = timeId + '-' + channelName
 
-                        const tsPath = filePath + '/' + filename + '.ts'
+                        //const tsPath = filePath + '/' + filename + '.ts'
                         const flvPath = filePath + '/' + filename + '.flv'
                         const aacPath = filePath + '/' + filename + '.aac'
                         const jpgPath = filePath + '/' + filename + '.jpg'
@@ -241,12 +242,15 @@ async function mainAsync(event) {
     function timeMath(scheduledStartTime) {
 
         let timeout = 60;
-        //console.log(`sunix-${scheduledStartTime}`);
+
         let timeunix = moment().valueOf();
-        //console.log(`nunix-${timeunix}`);
         //秒：seconds 小时：hours
         let differenceInSeconds = moment.unix(scheduledStartTime).diff(timeunix, 'seconds');
+
+        //console.log(`sunix-${scheduledStartTime}`);
+        //console.log(`nunix-${timeunix}`);
         //console.log(`dunix-${differenceInSeconds}`)
+
         if (differenceInSeconds >= 259200) {
             //[72,) 1
             timeout = 3600.5;
@@ -286,7 +290,7 @@ async function mainAsync(event) {
     async function StreamlinkAsync(Path, url, FORMAT, videoId, author) {
         let pid = null;
         try {
-            //tgnotice(`🟢 <b>${author}</b> <code>>></code> 录制开始！`, '')
+            tgmessage(`🟢 <b>${author}</b> <code>>></code> 录制开始！`, '')
             let beforePidData = fs.readFileSync(pidLog, { encoding: 'utf8' });
             let beforePidJson = JSON.parse(beforePidData);
 
@@ -300,6 +304,7 @@ async function mainAsync(event) {
             fs.fsyncSync(fdb);
             fs.closeSync(fdb);
 
+            //显示pid
             console.log(`streamlink pid: ${pid} ${author}\n`);
 
             await new Promise((resolve, reject) => {
@@ -319,28 +324,17 @@ async function mainAsync(event) {
                     }
                 });
             });
-            //tgnotice(`🔴 <b>${author}</b> <code>>></code> 录制结束！`, '')
+            tgmessage(`🔴 <b>${author}</b> <code>>></code> 录制结束！`, '')
 
-            /*         const AfterPidData = fs.readFileSync(pidLog, { encoding: 'utf8' });
-                    const AfterPidJson = JSON.parse(AfterPidData).pids;
-
-                    // 将过滤后的对象重新写回 pid.json 文件中
-                    const fda = fs.openSync(pidLog, 'w');
-                    // 过滤掉 pid 等于 pidToRemove 的对象
-                    const filteredPids = AfterPidJson.filter(p => p.pid !== pid);
-                    fs.writeFileSync(pidLog, JSON.stringify({ pids: filteredPids }), { encoding: 'utf8' });
-                    fs.fsyncSync(fda);
-                    fs.closeSync(fda); */
         } catch (error) {
-            //tgnotice(`🚧 <b>${author}</b> <code>>></code> 录制出错！`, '')
+            tgmessage(`🚧 <b>${author}</b> <code>>></code> 录制出错！`, '')
             console.error(error);
         }
         const AfterPidData = fs.readFileSync(pidLog, { encoding: 'utf8' });
         const AfterPidJson = JSON.parse(AfterPidData).pids;
 
-        // 将过滤后的对象重新写回 pid.json 文件中
         const fda = fs.openSync(pidLog, 'w');
-        // 过滤掉 pid 等于 pidToRemove 的对象
+        // 过滤掉当前 pid
         const filteredPids = AfterPidJson.filter(p => p.pid !== pid);
         fs.writeFileSync(pidLog, JSON.stringify({ pids: filteredPids }), { encoding: 'utf8' });
         fs.fsyncSync(fda);
@@ -348,7 +342,7 @@ async function mainAsync(event) {
 
     }
 
-    //转码
+    //转码-->aac
     function Ffmpeg(beforePath, afterPath) {
         return new Promise((resolve, reject) => {
 
@@ -369,7 +363,7 @@ async function mainAsync(event) {
     //上传
     function Rclone(filePath, rclonePath) {
         return new Promise((resolve, reject) => {
-            const rclone = spawn('rclone', ['copy', `${filePath}/`, `${rclonePath}/`, '--min-size', '1b', '--onedrive-chunk-size', '25600k', '--transfers', '5', '-q']);
+            const rclone = spawn('rclone', ['copy', `${filePath}/`, `${rclonePath}/`, '--min-size', '1b', '--onedrive-chunk-size', '25600k', '-q']);
             rclone.stderr.on('data', data => console.log(`[rclone-stderr]: ${data}`))
             rclone.stdout.on('data', data => console.log(`[rclone-stderr]: ${data}`))
             rclone.on('close', code => {
@@ -433,6 +427,4 @@ async function mainAsync(event) {
 
 }
 
-
-
-//module.exports = mainAsync;
+export default mainAsync;

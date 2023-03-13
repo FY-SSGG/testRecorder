@@ -1,0 +1,31 @@
+{
+    "youtubers": [{
+            "channelName": "SakuraMiko",
+            "channelId": "UC-hM6YJuNYVAmUWxeIr9FeA"
+        },
+        {
+            "channelName": "MinatoAqua",
+            "channelId": "UC1opHUrw8rvnsadT-iGp7Cg"
+        },
+        {
+            "channelName": "EnnaAlouette",
+            "channelId": "UCR6qhsLpn62WVxCBK1dkLow"
+        },
+        {
+            "channelName": "NatsuiroMatsuri",
+            "channelId": "UCQ0UDLQCjY0rmuxCDE38FGg"
+        },
+        {
+            "channelName": "ReimuEndou",
+            "channelId": "UCBURM8S4LH7cRZ0Clea9RDA"
+        },
+        {
+            "channelName": "MurasakiShion",
+            "channelId": "UCXTpFs_3PqI41qX2d9tL2Rw"
+        },
+        {
+            "channelName": "TsunomakiWatame",
+            "channelId": "UCqm3BQLlJfvkTsX_hvm0UmA"
+        }
+    ]
+}

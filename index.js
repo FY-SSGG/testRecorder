@@ -2,9 +2,8 @@ import dotenv from 'dotenv';
 dotenv.config();
 import fs from "fs";
 import { promisify } from 'util';
-//import mainAsync from './index_you.js';
-//import { fork } from 'child_process';
-
+//import {fork} from 'child_process';
+import mainAsync from './index_you.js';
 
 const readFileAsync = promisify(fs.readFile);
 
@@ -27,7 +26,6 @@ try {
     console.error(err);
 }
 
-//循环开始
 
 //读取config.json，录制判别
 start();
@@ -59,7 +57,6 @@ async function start() {
             }
         }
 
-
         let runningData = fs.readFileSync(runningLog);
         let runningJson = JSON.parse(runningData);
 
@@ -73,24 +70,23 @@ async function start() {
         for (const youtuber of youtubers) {
 
             //console.log(!runningJson.channelIds.some(c => c.channelId === youtuber.channelId));
-
             if (!runningJson.channelIds.some(c => c.channelId === youtuber.channelId)) {
 
                 console.log(`${youtuber.channelName}-开始监听`);
                 runningJson.channelIds = [...runningJson.channelIds, { channelId: youtuber.channelId }];
-                // Object.assign(runningJson.channelIds, { channelId: youtuber.channelId }); // You can also use this line to merge the new object into the existing array
+                // Object.assign(runningJson.channelIds, { channelId: youtuber.channelId });
 
                 setTimeout(() => {
                     const event = {
-                            channelId: youtuber.channelId,
-                            channelName: youtuber.channelName,
-                            isStreamlink: true,
-                            beforeScheduledStartTime: null,
-                            beforeVideoId: null,
-                        }
-                        //mainAsync(event);
-                        /* const childProcess = fork('./app.js');
-                        childProcess.send({ channelId: youtuber.channelId, channelName: youtuber.channelName }); */
+                        channelId: youtuber.channelId,
+                        channelName: youtuber.channelName,
+                        isStreamlink: true,
+                        beforeScheduledStartTime: null,
+                        beforeVideoId: null,
+                    }
+                    mainAsync(event);
+                    /* const childProcess = fork('./app.js');
+                    childProcess.send({ channelId: youtuber.channelId, channelName: youtuber.channelName }); */
                 }, Math.random() * 5000); // 随机延时 0 到 5000 毫秒
 
             } else {
@@ -99,11 +95,10 @@ async function start() {
         }
 
         const fd = fs.openSync(runningLog, 'w');
-        /* fs.fsyncSync(fs.openSync(runningLog, 'w')); */
+        //写入runningjson
         fs.writeFileSync(fd, JSON.stringify(runningJson));
         // 刷新文件到磁盘
         fs.fsyncSync(fd);
-
         // 关闭文件句柄
         fs.closeSync(fd);
 
