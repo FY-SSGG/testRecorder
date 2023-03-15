@@ -18,6 +18,11 @@ const pidLog = CONFIG + '/pid.json'
 const logFile = CONFIG + '/log.json'
 const FORMAT = 'best';
 
+// 队列，用于存储事件
+const queue = [];
+// 是否有 FFmpeg 进程正在运行
+let isRcloneRunning = false;
+
 /* process.on('message', (message) => {
     const { channelId, channelName } = message;
     mainAsync(channelId, channelName);
@@ -51,7 +56,7 @@ async function mainAsync(event) {
 
         //判断是否循环调用（同步函数
         if (isChannelIdInConfigSync(channelId)) {
-            console.log(`${channelName}--Loading-->>${timeout}\n`);
+            //console.log(`${channelName}--Loading-->>${timeout}\n`);
             //console.log(`${isStreamlink}-${beforeScheduledStartTime}-${beforeVideoId}\n`)
             setTimeout(() => {
                 //再次判断防止浪费
@@ -101,10 +106,7 @@ async function mainAsync(event) {
                 reject;
                 console.error(error);
             });
-
         })
-
-
     }
 
     //判断是否开播（同步函数
@@ -143,7 +145,7 @@ async function mainAsync(event) {
                             let text = `<b>${author}</b> <code>>></code> 直播预告！\n时间 <code>:</code> <b>${starttime}</b>\n标题 <code>:</code> <i><a href="${liveUrl}">${title}</a></i>`;
                             tgphoto(coverUrl, text);
 
-                            console.log(author + '开始时间：' + starttime)
+                            //console.log(author + '开始时间：' + starttime)
                         }
                         //Log({ playabilityStatus: playerResponse.playabilityStatus, videoDetails: playerResponse.videoDetails })
                         break;
@@ -173,22 +175,14 @@ async function mainAsync(event) {
                         await GetImage(coverUrl, jpgPath)
 
                         //下载
-                        await StreamlinkAsync(flvPath, liveUrl, FORMAT, videoId, author)
-                            /* Ffmpeg(beforePath, afterPath)
-                            Rclone(filePath, rclonePath)
-                            const event = {
-                                beforePath: flvPath,
-                                afterPath: aacPath,
-                                filePath: filePath,
-                                rclonePath: rclonePath,
-                            }
-                            runbash(event) */
-                        Ffmpeg(flvPath, aacPath)
-                            .then(() => Rclone(filePath, rclonePath))
-                            .then(() => spawn('rm', ['-rf', `${filePath}`]).on('close', code => console.log(`[    rm-exit  ]: ${code}\n`)));
+                        await StreamlinkAsync(flvPath, liveUrl, FORMAT, author)
 
-                        // 设置要写入 NFO 文件的元数据
-                        const metadata = {
+                        const rcloneEvent = {
+                            beforePath: flvPath,
+                            afterPath: aacPath,
+                            filePath: filePath,
+                            rclonePath: rclonePath,
+                            nfoPath: nfoPath,
                             titles: channelName,
                             plot: `${author}-${timeId}`,
                             year: timeId.substring(0, 4),
@@ -201,8 +195,28 @@ async function mainAsync(event) {
                             thumb: thumbUrl,
                             cover: coverUrl,
                             website: websiteUrl
-                        };
-                        WriteNfo(metadata, nfoPath)
+                        }
+                        runbash(rcloneEvent)
+                            /* Ffmpeg(flvPath, aacPath)
+                                .then(() => Rclone(filePath, rclonePath))
+                                .then(() => spawn('rm', ['-rf', `${filePath}`]).on('close', code => console.log(`[    rm-exit  ]: ${code}\n`)));
+
+                            // 设置要写入 NFO 文件的元数据
+                            const metadata = {
+                                titles: channelName,
+                                plot: `${author}-${timeId}`,
+                                year: timeId.substring(0, 4),
+                                data: timeId.substring(4, 8),
+                                videoId: videoId,
+                                title: title,
+                                premiered: timeId,
+                                genre: 'Live',
+                                name: channelName,
+                                thumb: thumbUrl,
+                                cover: coverUrl,
+                                website: websiteUrl
+                            };
+                            WriteNfo(metadata, nfoPath) */
 
                         //Log({ playabilityStatus: playerResponse.playabilityStatus, videoDetails: playerResponse.videoDetails })
                         timeout = 5;
@@ -223,9 +237,8 @@ async function mainAsync(event) {
             beforeScheduledStartTime = null;
             beforeVideoId = null;
             isStreamlink = true;
-            console.log(`${channelName} 没有直播信息\n`);
+            //console.log(`${channelName} 没有直播信息\n`);
         }
-
 
         return timeout;
     }
@@ -287,23 +300,28 @@ async function mainAsync(event) {
     }
 
     //下载
-    async function StreamlinkAsync(Path, url, FORMAT, videoId, author) {
-        let pid = null;
+    async function StreamlinkAsync(Path, url, FORMAT, author) {
         try {
-            tgmessage(`🟢 <b>${author}</b> <code>>></code> 录制开始！`, '')
-            let beforePidData = fs.readFileSync(pidLog, { encoding: 'utf8' });
-            let beforePidJson = JSON.parse(beforePidData);
 
+
+            let pid = null;
+            tgmessage(`🟢 <b>${author}</b> <code>>></code> 录制开始！`, '')
             const result = spawn('streamlink', ['--hls-live-restart', '--loglevel', 'warning', '-o', `${Path}`, `${url}`, FORMAT]);
             pid = result.pid;
+            try {
 
-            beforePidJson.pids = [...beforePidJson.pids, { pid: pid, name: author }];
+                let beforePidData = fs.readFileSync(pidLog, { encoding: 'utf8' });
+                let beforePidJson = JSON.parse(beforePidData);
 
-            const fdb = fs.openSync(pidLog, 'w');
-            fs.writeFileSync(pidLog, JSON.stringify(beforePidJson));
-            fs.fsyncSync(fdb);
-            fs.closeSync(fdb);
+                beforePidJson.pids = [...beforePidJson.pids, { pid: pid, name: author, channelId: channelId }];
 
+                const fdb = fs.openSync(pidLog, 'w');
+                fs.writeFileSync(pidLog, JSON.stringify(beforePidJson));
+                fs.fsyncSync(fdb);
+                fs.closeSync(fdb);
+            } catch (error) {
+                console.error(`写入pid:${error}`);
+            }
             //显示pid
             console.log(`streamlink pid: ${pid} ${author}\n`);
 
@@ -314,75 +332,173 @@ async function mainAsync(event) {
                         resolve();
                     } else if (code === 130) {
                         isStreamlink = false;
-                        console.error(`视频地址：${Path}`);
-
+                        console.error(`（手动）视频地址：${Path}`);
+                        resolve();
+                    } else if (code === 1) {
+                        console.error(`（超时？）视频地址：${Path}`);
                         resolve();
                     } else {
-                        console.error(`streamlink failed with code ${code}`);
-                        console.error(`streamlink failed with signal ${signal}`);
-                        reject();
+                        /* console.error(`streamlink failed with code ${code}`);
+                        console.error(`streamlink failed with signal ${signal}`); */
+                        reject(`code:${code}\nsignal:${signal}`);
                     }
                 });
             });
             tgmessage(`🔴 <b>${author}</b> <code>>></code> 录制结束！`, '')
 
+            try {
+                const AfterPidData = fs.readFileSync(pidLog, { encoding: 'utf8' });
+                const AfterPidJson = JSON.parse(AfterPidData).pids;
+
+                const fda = fs.openSync(pidLog, 'w');
+                // 过滤掉当前 pid
+                const filteredPids = AfterPidJson.filter(p => p.pid !== pid);
+                fs.writeFileSync(pidLog, JSON.stringify({ pids: filteredPids }), { encoding: 'utf8' });
+                fs.fsyncSync(fda);
+                fs.closeSync(fda);
+            } catch (error) {
+                console.error(`删除pid:${error}`);
+            }
         } catch (error) {
-            tgmessage(`🚧 <b>${author}</b> <code>>></code> 录制出错！`, '')
-            console.error(error);
+            console.error(error)
         }
-        const AfterPidData = fs.readFileSync(pidLog, { encoding: 'utf8' });
-        const AfterPidJson = JSON.parse(AfterPidData).pids;
-
-        const fda = fs.openSync(pidLog, 'w');
-        // 过滤掉当前 pid
-        const filteredPids = AfterPidJson.filter(p => p.pid !== pid);
-        fs.writeFileSync(pidLog, JSON.stringify({ pids: filteredPids }), { encoding: 'utf8' });
-        fs.fsyncSync(fda);
-        fs.closeSync(fda);
 
     }
 
-    //转码-->aac
-    function Ffmpeg(beforePath, afterPath) {
-        return new Promise((resolve, reject) => {
+    //写日志
+    function Log(content) {
+        //写日志
+        fs.appendFile(logFile, JSON.stringify(content, null, 2) + '\n', (err) => {
+            if (err) throw err;
+            console.log('The match was appended to log.txt!');
+        });
 
-            const ffmpeg = spawn('ffmpeg', ['-v', '24', '-i', `${beforePath}`, '-vn', '-acodec', 'copy', `${afterPath}`]);
-            ffmpeg.stderr.on('data', data => console.log(`[ffmpeg-stderr]: ${data}`))
-            ffmpeg.stdout.on('data', data => console.log(`[ffmpeg-stderr]: ${data}`))
-            ffmpeg.on('close', code => {
-                console.log(`[ffmpeg-exit  ]: ${code}`)
-                resolve()
+    }
+}
+
+//处理事件
+function runbash(rcloneEvent) {
+    // 检查当前是否有 FFmpeg 进程正在运行
+    if (isRcloneRunning) {
+        // 如果有，将事件添加到队列中
+        addBashToQueue(rcloneEvent);
+    } else {
+        // 如果没有，立即处理事件
+        handleBash(rcloneEvent);
+    }
+}
+
+// 添加事件到队列中
+function addBashToQueue(rcloneEvent) {
+    queue.push(rcloneEvent);
+    console.log(queue)
+}
+
+
+// 处理事件函数
+function handleBash(rcloneEvent) {
+
+
+    // 标记 Rclone 进程正在运行
+    isRcloneRunning = true;
+
+    const beforePath = rcloneEvent.beforePath;
+    const afterPath = rcloneEvent.afterPath;
+    const filePath = rcloneEvent.filePath;
+    const rclonePath = rcloneEvent.rclonePath;
+    const nfoPath = rcloneEvent.nfoPath;
+    // 设置要写入 NFO 文件的元数据
+    const metadata = {
+        titles: rcloneEvent.titles,
+        plot: rcloneEvent.plot,
+        year: rcloneEvent.year,
+        data: rcloneEvent.data,
+        videoId: rcloneEvent.videoId,
+        title: rcloneEvent.title,
+        premiered: rcloneEvent.premiered,
+        genre: rcloneEvent.genre,
+        name: rcloneEvent.name,
+        thumb: rcloneEvent.thumb,
+        cover: rcloneEvent.cover,
+        website: rcloneEvent.website,
+    };
+    WriteNfo(metadata, nfoPath);
+    Ffmpeg(beforePath, afterPath)
+        .then(() => Rclone(filePath, rclonePath))
+        .then(() => {
+            const ls = spawn('rclone', ['ls', `${rclonePath}/`], { stdio: ['ignore', 'pipe', 'pipe'] });
+            const wc = spawn('wc', ['-l'], { stdio: ['pipe', 'pipe', 'ignore'] });
+            ls.stdout.pipe(wc.stdin);
+
+            wc.stdout.on('data', (data) => {
+                //console.log('data received:', data);
+                const stdout = data.toString().trim();
+                //console.log(Number(stdout));
+
+                if (Number(stdout) === 4) {
+                    tgmessage(`🎊 <b>${rcloneEvent.name}</b> <code>>></code> 上传成功！`, '');
+                    spawn('rm', ['-rf', `${filePath}`]).on('close', code => console.log(`[    rm-exit  ]: ${code}`))
+                } else {
+                    tgnotice(`🚧 <b>${rcloneEvent.name}</b> <code>>></code> <b><i><u>上传失败！</u></i></b>`, '');
+                };
+            });
+
+            wc.on('close', code => {
+                console.log(`[    wc-exit  ]: ${code}`)
+                if (queue.length > 0) {
+                    console.log("处理下一事件")
+                    const nextBash = queue.shift();
+                    console.log(nextBash)
+                    handleBash(nextBash);
+                } else {
+                    isRcloneRunning = false;
+                }
             })
-            ffmpeg.on('error', error => {
-                console.log(`[ffmpeg-error ]: ${error}`)
-                reject()
-            })
+
+        });
+}
+
+//转码-->aac
+function Ffmpeg(beforePath, afterPath) {
+    return new Promise((resolve, reject) => {
+
+        const ffmpeg = spawn('ffmpeg', ['-v', '24', '-i', `${beforePath}`, '-vn', '-acodec', 'copy', `${afterPath}`]);
+        ffmpeg.stderr.on('data', data => console.log(`[ffmpeg-stderr]: ${data}`))
+        ffmpeg.stdout.on('data', data => console.log(`[ffmpeg-stderr]: ${data}`))
+        ffmpeg.on('close', code => {
+            console.log(`[ffmpeg-exit  ]: ${code}`)
+            resolve()
         })
-    }
-
-    //上传
-    function Rclone(filePath, rclonePath) {
-        return new Promise((resolve, reject) => {
-            const rclone = spawn('rclone', ['copy', `${filePath}/`, `${rclonePath}/`, '--min-size', '1b', '--onedrive-chunk-size', '25600k', '-q']);
-            rclone.stderr.on('data', data => console.log(`[rclone-stderr]: ${data}`))
-            rclone.stdout.on('data', data => console.log(`[rclone-stderr]: ${data}`))
-            rclone.on('close', code => {
-                console.log(`[rclone-exit  ]: ${code}`)
-                resolve()
-            })
-            rclone.on('error', error => {
-                console.log(`[rclone-error ]: ${error}`)
-                reject()
-            })
+        ffmpeg.on('error', error => {
+            console.log(`[ffmpeg-error ]: ${error}`)
+            reject()
         })
-    }
+    })
+}
 
-    //写nfo
-    function WriteNfo(metadata, nfoPath) {
+//上传
+function Rclone(filePath, rclonePath) {
+    return new Promise((resolve, reject) => {
+        const rclone = spawn('rclone', ['copy', `${filePath}/`, `${rclonePath}/`, '--min-size', '1b', '--onedrive-chunk-size', '25600k', '-q']);
+        rclone.stderr.on('data', data => console.log(`[rclone-stderr]: ${data}`))
+        rclone.stdout.on('data', data => console.log(`[rclone-stderr]: ${data}`))
+        rclone.on('close', code => {
+            console.log(`[rclone-exit  ]: ${code}`)
+            resolve()
+        })
+        rclone.on('error', error => {
+            console.log(`[rclone-error ]: ${error}`)
+            reject()
+        })
+    })
+}
 
-        // 生成 NFO 文件的内容
-        const nfoContent = `<?xml version="1.0" encoding="UTF-8" standalone="yes" ?>
-<tvshow>
+//写nfo
+function WriteNfo(metadata, nfoPath) {
+
+    // 生成 NFO 文件的内容
+    const nfoContent = `<?xml version="1.0" encoding="UTF-8" standalone="yes" ?>
+<movie>
     <title>${metadata.titles}</title>
     <plot>${metadata.plot}</plot>
     <year>${metadata.year}</year>
@@ -404,27 +520,13 @@ async function mainAsync(event) {
     <poster>${metadata.cover}</poster>
     <cover>${metadata.cover}</cover>
     <website>${metadata.website}</website>
-</tvshow>`;
+</movie>`;
 
-        // 将 NFO 文件内容写入文件
-        fs.writeFile(`${nfoPath}`, nfoContent, function(err) {
-            if (err) throw err;
-            console.log('NFO file saved!');
-        });
-    }
-
-    //写日志
-    function Log(content) {
-        //写日志
-        fs.appendFile(logFile, JSON.stringify(content, null, 2) + '\n', (err) => {
-            if (err) throw err;
-            console.log('The match was appended to log.txt!');
-        });
-
-    }
-
-
-
+    // 将 NFO 文件内容写入文件
+    fs.writeFile(`${nfoPath}`, nfoContent, function(err) {
+        if (err) throw err;
+        console.log('NFO file saved!');
+    });
 }
 
 export default mainAsync;
