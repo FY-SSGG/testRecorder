@@ -4,44 +4,62 @@ import https from 'https';
 import fs from 'fs';
 import moment from 'moment-timezone';
 import { spawn } from 'child_process';
-//import { promisify } from 'util';
+import { promisify } from 'util';
 import { tgmessage, tgphoto } from './index_tgnotice.js';
 
 moment.tz.setDefault('Asia/Shanghai');
+const readFileAsync = promisify(fs.readFile);
+const writeFileAsync = promisify(fs.writeFile);
 
 const dir = process.env.DOWNLOADDIR;
 const RCLONEDIR = process.env.RCLONEDIR;
 const CONFIG = process.env.CONFIG;
 
-const configLog = CONFIG + '/config.json'
-const pidLog = CONFIG + '/pid.json'
-const logFile = CONFIG + '/log.json'
-const FORMAT = 'best';
+const configLog = CONFIG + '/config.json';
+const pidLog = CONFIG + '/pid.json';
+const logFile = CONFIG + '/log.json';
+//const definition = 'best';
 
-// 队列，用于存储事件
+// 队列，用于存储后处理事件
 const queue = [];
 // 是否有 FFmpeg 进程正在运行
 let isRcloneRunning = false;
 
+// 队列，用于存储事件
+const queueChannelId = [];
+
 /* process.on('message', (message) => {
     const { channelId, channelName } = message;
-    mainAsync(channelId, channelName);
+    main(channelId, channelName);
 }); */
 
 
 /* const event = {
     channelId: 'UC1opHUrw8rvnsadT-iGp7Cg',
     channelName: 'MinatoAqua',
+    definition: 'best',
     isStreamlink: true,
     beforeScheduledStartTime: null,
     beforeVideoId: null,
 }
-mainAsync(event); */
+main(event); */
 
-async function mainAsync(event) {
+function isMainRunning(event) {
+    if (!queueChannelId.includes(event.channelId)) {
+        queueChannelId.push(event.channelId)
+            //console.log(queueChannelId)
+        main(event)
+    } else {
+        console.log('已在队列中')
+    }
+
+}
+
+async function main(event) {
 
     const channelId = event.channelId
     const channelName = event.channelName
+    const definition = event.definition
     let isStreamlink = event.isStreamlink
     let beforeScheduledStartTime = event.beforeScheduledStartTime
     let beforeVideoId = event.beforeVideoId
@@ -52,7 +70,7 @@ async function mainAsync(event) {
         // 获取 https 数据
         const match = await getHttps(channelId);
         // 判断是否开播
-        let timeout = await isLivingAsync(match, channelId, channelName, FORMAT, dir);
+        let timeout = await isLivingAsync(match, channelId, channelName, definition, dir);
 
         //判断是否循环调用（同步函数
         if (isChannelIdInConfigSync(channelId)) {
@@ -64,18 +82,29 @@ async function mainAsync(event) {
                     const newevent = {
                         channelId: channelId,
                         channelName: channelName,
+                        definition: definition,
                         isStreamlink: isStreamlink,
                         beforeScheduledStartTime: beforeScheduledStartTime,
                         beforeVideoId: beforeVideoId,
                     }
-                    mainAsync(newevent);
+                    main(newevent);
 
                 } else {
+                    const index = queueChannelId.indexOf(channelId);
+                    if (index !== -1) {
+                        queueChannelId.splice(index, 1);
+                    }
                     console.log(`${channelName}:stop`);
                 }
             }, timeout * 1000);
 
         } else {
+            const index = queueChannelId.indexOf(channelId);
+            if (index !== -1) {
+                queueChannelId.splice(index, 1);
+            }
+
+
             console.log(`${channelName}:stop`);
         }
     } catch (error) {
@@ -110,8 +139,8 @@ async function mainAsync(event) {
     }
 
     //判断是否开播（同步函数
-    async function isLivingAsync(match, channelId, channelName, FORMAT, dir) {
-        //默认5分钟获取一次
+    async function isLivingAsync(match, channelId, channelName, definition, dir) {
+        //默认45分钟获取一次
         let timeout = 2700;
 
         if (match && match[1]) {
@@ -175,7 +204,7 @@ async function mainAsync(event) {
                         await GetImage(coverUrl, jpgPath)
 
                         //下载
-                        await StreamlinkAsync(flvPath, liveUrl, FORMAT, author)
+                        await StreamlinkAsync(flvPath, liveUrl, definition, author)
 
                         const rcloneEvent = {
                             beforePath: flvPath,
@@ -197,26 +226,6 @@ async function mainAsync(event) {
                             website: websiteUrl
                         }
                         runbash(rcloneEvent)
-                            /* Ffmpeg(flvPath, aacPath)
-                                .then(() => Rclone(filePath, rclonePath))
-                                .then(() => spawn('rm', ['-rf', `${filePath}`]).on('close', code => console.log(`[    rm-exit  ]: ${code}\n`)));
-
-                            // 设置要写入 NFO 文件的元数据
-                            const metadata = {
-                                titles: channelName,
-                                plot: `${author}-${timeId}`,
-                                year: timeId.substring(0, 4),
-                                data: timeId.substring(4, 8),
-                                videoId: videoId,
-                                title: title,
-                                premiered: timeId,
-                                genre: 'Live',
-                                name: channelName,
-                                thumb: thumbUrl,
-                                cover: coverUrl,
-                                website: websiteUrl
-                            };
-                            WriteNfo(metadata, nfoPath) */
 
                         //Log({ playabilityStatus: playerResponse.playabilityStatus, videoDetails: playerResponse.videoDetails })
                         timeout = 5;
@@ -300,30 +309,31 @@ async function mainAsync(event) {
     }
 
     //下载
-    async function StreamlinkAsync(Path, url, FORMAT, author) {
+    async function StreamlinkAsync(Path, url, definition, author) {
         try {
 
 
             let pid = null;
             tgmessage(`🟢 <b>${author}</b> <code>>></code> 录制开始！`, '')
-            const result = spawn('streamlink', ['--hls-live-restart', '--loglevel', 'warning', '-o', `${Path}`, `${url}`, FORMAT]);
+            const result = spawn('streamlink', ['--hls-live-restart', '--loglevel', 'warning', '-o', `${Path}`, `${url}`, definition]);
             pid = result.pid;
             try {
-
-                let beforePidData = fs.readFileSync(pidLog, { encoding: 'utf8' });
+                const beforePidData = await readFileAsync(pidLog, 'utf-8');
+                //let beforePidData = fs.readFileSync(pidLog, { encoding: 'utf8' });
                 let beforePidJson = JSON.parse(beforePidData);
 
                 beforePidJson.pids = [...beforePidJson.pids, { pid: pid, name: author, channelId: channelId }];
 
-                const fdb = fs.openSync(pidLog, 'w');
-                fs.writeFileSync(pidLog, JSON.stringify(beforePidJson));
+                await writeFileAsync(pidLog, JSON.stringify(beforePidJson, null, 2));
+                /* const fdb = fs.openSync(pidLog, 'w');
+                fs.writeFileSync(pidLog, JSON.stringify(beforePidJson, null, 2));
                 fs.fsyncSync(fdb);
-                fs.closeSync(fdb);
+                fs.closeSync(fdb); */
             } catch (error) {
                 console.error(`写入pid:${error}`);
             }
             //显示pid
-            console.log(`streamlink pid: ${pid} ${author}\n`);
+            //console.log(`streamlink pid: ${pid} ${author}\n`);
 
             await new Promise((resolve, reject) => {
                 result.on('exit', (code, signal) => {
@@ -347,15 +357,20 @@ async function mainAsync(event) {
             tgmessage(`🔴 <b>${author}</b> <code>>></code> 录制结束！`, '')
 
             try {
-                const AfterPidData = fs.readFileSync(pidLog, { encoding: 'utf8' });
-                const AfterPidJson = JSON.parse(AfterPidData).pids;
+                const AfterPidData = await readFileAsync(pidLog, 'utf-8');
 
-                const fda = fs.openSync(pidLog, 'w');
+                let AfterPidJson = JSON.parse(AfterPidData);
+
+                AfterPidJson.pids = AfterPidJson.pids.filter(p => p.pid !== pid);
+                await writeFileAsync(pidLog, JSON.stringify(AfterPidJson, null, 2));
+
+                //const AfterPidData = fs.readFileSync(pidLog, { encoding: 'utf8' });
+                /* const fda = fs.openSync(pidLog, 'w');
                 // 过滤掉当前 pid
                 const filteredPids = AfterPidJson.filter(p => p.pid !== pid);
-                fs.writeFileSync(pidLog, JSON.stringify({ pids: filteredPids }), { encoding: 'utf8' });
+                fs.writeFileSync(pidLog, JSON.stringify({ pids: filteredPids }, null, 2), { encoding: 'utf8' });
                 fs.fsyncSync(fda);
-                fs.closeSync(fda);
+                fs.closeSync(fda); */
             } catch (error) {
                 console.error(`删除pid:${error}`);
             }
@@ -384,6 +399,7 @@ function runbash(rcloneEvent) {
         addBashToQueue(rcloneEvent);
     } else {
         // 如果没有，立即处理事件
+        console.error(rcloneEvent)
         handleBash(rcloneEvent);
     }
 }
@@ -391,7 +407,7 @@ function runbash(rcloneEvent) {
 // 添加事件到队列中
 function addBashToQueue(rcloneEvent) {
     queue.push(rcloneEvent);
-    console.log(queue)
+    //console.error(queue)
 }
 
 
@@ -448,7 +464,7 @@ function handleBash(rcloneEvent) {
                 if (queue.length > 0) {
                     console.log("处理下一事件")
                     const nextBash = queue.shift();
-                    console.log(nextBash)
+                    console.error(nextBash)
                     handleBash(nextBash);
                 } else {
                     isRcloneRunning = false;
@@ -529,4 +545,4 @@ function WriteNfo(metadata, nfoPath) {
     });
 }
 
-export default mainAsync;
+export default isMainRunning;
