@@ -1,6 +1,7 @@
 import dotenv from 'dotenv';
 dotenv.config();
 import https from 'https';
+import axios from "axios";
 import fs from 'fs';
 import moment from 'moment-timezone';
 import { spawn } from 'child_process';
@@ -14,11 +15,12 @@ const writeFileAsync = promisify(fs.writeFile);
 const dir = process.env.DOWNLOADDIR;
 const RCLONEDIR = process.env.RCLONEDIR;
 const CONFIG = process.env.CONFIG;
+const YDA_KEY = process.env.YDA_KEY;
+const YDA_URL = process.env.YDA_URL;
 
 const configLog = CONFIG + '/config.json';
 const pidLog = CONFIG + '/pid.json';
 const logFile = CONFIG + '/log.json';
-//const definition = 'best';
 
 // 队列，用于存储后处理事件
 const queue = [];
@@ -27,12 +29,6 @@ let isRcloneRunning = false;
 
 // 队列，用于存储事件
 const queueChannelId = [];
-
-/* process.on('message', (message) => {
-    const { channelId, channelName } = message;
-    main(channelId, channelName);
-}); */
-
 
 /* const event = {
     channelId: 'UC1opHUrw8rvnsadT-iGp7Cg',
@@ -44,6 +40,7 @@ const queueChannelId = [];
 }
 main(event); */
 
+//防止重复运行
 function isMainRunning(event) {
     if (!queueChannelId.includes(event.channelId)) {
         queueChannelId.push(event.channelId)
@@ -55,6 +52,7 @@ function isMainRunning(event) {
 
 }
 
+//主函数
 async function main(event) {
 
     const channelId = event.channelId
@@ -67,9 +65,9 @@ async function main(event) {
     let thumbUrl = null
 
     try {
-        // 获取 https 数据
+
         const match = await getHttps(channelId);
-        // 判断是否开播
+
         let timeout = await isLivingAsync(match, channelId, channelName, definition, dir);
 
         //判断是否循环调用（同步函数
@@ -90,6 +88,7 @@ async function main(event) {
                     main(newevent);
 
                 } else {
+                    //移除数组中的对象
                     const index = queueChannelId.indexOf(channelId);
                     if (index !== -1) {
                         queueChannelId.splice(index, 1);
@@ -111,7 +110,7 @@ async function main(event) {
         console.log(error);
     }
 
-    //获取https数据（异步函数
+    //获取https数据
     function getHttps(channelId) {
         return new Promise((resolve, reject) => {
             const liveUrl = 'https://www.youtube.com/channel/' + channelId + '/live';
@@ -138,7 +137,7 @@ async function main(event) {
         })
     }
 
-    //判断是否开播（同步函数
+    //判断是否开播
     async function isLivingAsync(match, channelId, channelName, definition, dir) {
         //默认45分钟获取一次
         let timeout = 2700;
@@ -185,31 +184,33 @@ async function main(event) {
                         console.log(isLive ? `${author} 正在直播` : `${author} 没播\n`)
 
                         const timeId = moment().format('YYYYMMDD_HHmmssSSS')
+                        const partialPath = moment().format('YYYY/MM')
+
                         const websiteUrl = 'https://www.youtube.com/watch?v=' + videoId;
 
-                        const filePath = dir + '/' + channelName + '/' + timeId;
+                        const folderPath = dir + '/' + channelName + '/' + partialPath + '/' + timeId;
                         const filename = timeId + '-' + channelName
 
                         //const tsPath = filePath + '/' + filename + '.ts'
-                        const flvPath = filePath + '/' + filename + '.flv'
-                        const aacPath = filePath + '/' + filename + '.aac'
-                        const jpgPath = filePath + '/' + filename + '.jpg'
-                        const nfoPath = filePath + '/' + filename + '.nfo'
+                        const flvPath = folderPath + '/' + filename + '.flv'
+                        const aacPath = folderPath + '/' + filename + '.aac'
+                        const jpgPath = folderPath + '/' + filename + '.jpg'
+                        const nfoPath = folderPath + '/' + filename + '.nfo'
 
-                        const rclonePath = RCLONEDIR + '/' + channelName + '/' + timeId
+                        const rclonePath = RCLONEDIR + '/' + channelName + '/' + partialPath + '/' + timeId;
 
-                        fs.mkdirSync(filePath, { recursive: true })
-
-                        //下载封面
-                        await GetImage(coverUrl, jpgPath)
+                        fs.mkdirSync(folderPath, { recursive: true })
 
                         //下载
                         await StreamlinkAsync(flvPath, liveUrl, definition, author)
 
+                        //下载封面
+                        await GetImage(coverUrl, jpgPath)
+
                         const rcloneEvent = {
                             beforePath: flvPath,
                             afterPath: aacPath,
-                            filePath: filePath,
+                            folderPath: folderPath,
                             rclonePath: rclonePath,
                             nfoPath: nfoPath,
                             titles: channelName,
@@ -296,18 +297,6 @@ async function main(event) {
         }
     }
 
-    //获取封面
-    function GetImage(imageUrl, jpgPath) {
-        const file = fs.createWriteStream(jpgPath);
-
-        https.get(imageUrl, function(response) {
-            response.pipe(file);
-            console.log('Image downloaded!');
-        }).on('error', function(error) {
-            console.error('Error downloading image:', error);
-        });
-    }
-
     //下载
     async function StreamlinkAsync(Path, url, definition, author) {
         try {
@@ -319,16 +308,11 @@ async function main(event) {
             pid = result.pid;
             try {
                 const beforePidData = await readFileAsync(pidLog, 'utf-8');
-                //let beforePidData = fs.readFileSync(pidLog, { encoding: 'utf8' });
                 let beforePidJson = JSON.parse(beforePidData);
-
+                // 写入当前 pid
                 beforePidJson.pids = [...beforePidJson.pids, { pid: pid, name: author, channelId: channelId }];
-
                 await writeFileAsync(pidLog, JSON.stringify(beforePidJson, null, 2));
-                /* const fdb = fs.openSync(pidLog, 'w');
-                fs.writeFileSync(pidLog, JSON.stringify(beforePidJson, null, 2));
-                fs.fsyncSync(fdb);
-                fs.closeSync(fdb); */
+
             } catch (error) {
                 console.error(`写入pid:${error}`);
             }
@@ -358,19 +342,11 @@ async function main(event) {
 
             try {
                 const AfterPidData = await readFileAsync(pidLog, 'utf-8');
-
                 let AfterPidJson = JSON.parse(AfterPidData);
-
+                // 过滤掉当前 pid
                 AfterPidJson.pids = AfterPidJson.pids.filter(p => p.pid !== pid);
                 await writeFileAsync(pidLog, JSON.stringify(AfterPidJson, null, 2));
 
-                //const AfterPidData = fs.readFileSync(pidLog, { encoding: 'utf8' });
-                /* const fda = fs.openSync(pidLog, 'w');
-                // 过滤掉当前 pid
-                const filteredPids = AfterPidJson.filter(p => p.pid !== pid);
-                fs.writeFileSync(pidLog, JSON.stringify({ pids: filteredPids }, null, 2), { encoding: 'utf8' });
-                fs.fsyncSync(fda);
-                fs.closeSync(fda); */
             } catch (error) {
                 console.error(`删除pid:${error}`);
             }
@@ -380,15 +356,6 @@ async function main(event) {
 
     }
 
-    //写日志
-    function Log(content) {
-        //写日志
-        fs.appendFile(logFile, JSON.stringify(content, null, 2) + '\n', (err) => {
-            if (err) throw err;
-            console.log('The match was appended to log.txt!');
-        });
-
-    }
 }
 
 //处理事件
@@ -399,7 +366,7 @@ function runbash(rcloneEvent) {
         addBashToQueue(rcloneEvent);
     } else {
         // 如果没有，立即处理事件
-        console.error(rcloneEvent)
+        //console.error(rcloneEvent)
         handleBash(rcloneEvent);
     }
 }
@@ -410,17 +377,15 @@ function addBashToQueue(rcloneEvent) {
     //console.error(queue)
 }
 
-
 // 处理事件函数
 function handleBash(rcloneEvent) {
-
 
     // 标记 Rclone 进程正在运行
     isRcloneRunning = true;
 
     const beforePath = rcloneEvent.beforePath;
     const afterPath = rcloneEvent.afterPath;
-    const filePath = rcloneEvent.filePath;
+    const folderPath = rcloneEvent.folderPath;
     const rclonePath = rcloneEvent.rclonePath;
     const nfoPath = rcloneEvent.nfoPath;
     // 设置要写入 NFO 文件的元数据
@@ -438,9 +403,11 @@ function handleBash(rcloneEvent) {
         cover: rcloneEvent.cover,
         website: rcloneEvent.website,
     };
-    WriteNfo(metadata, nfoPath);
+
+    WriteNfo(rcloneEvent.videoId, metadata, nfoPath);
+
     Ffmpeg(beforePath, afterPath)
-        .then(() => Rclone(filePath, rclonePath))
+        .then(() => Rclone(folderPath, rclonePath))
         .then(() => {
             const ls = spawn('rclone', ['ls', `${rclonePath}/`], { stdio: ['ignore', 'pipe', 'pipe'] });
             const wc = spawn('wc', ['-l'], { stdio: ['pipe', 'pipe', 'ignore'] });
@@ -453,7 +420,7 @@ function handleBash(rcloneEvent) {
 
                 if (Number(stdout) === 4) {
                     tgmessage(`🎊 <b>${rcloneEvent.name}</b> <code>>></code> 上传成功！`, '');
-                    spawn('rm', ['-rf', `${filePath}`]).on('close', code => console.log(`[    rm-exit  ]: ${code}`))
+                    spawn('rm', ['-rf', `${folderPath}`]).on('close', code => console.log(`[    rm-exit  ]: ${code}`))
                 } else {
                     tgnotice(`🚧 <b>${rcloneEvent.name}</b> <code>>></code> <b><i><u>上传失败！</u></i></b>`, '');
                 };
@@ -464,7 +431,7 @@ function handleBash(rcloneEvent) {
                 if (queue.length > 0) {
                     console.log("处理下一事件")
                     const nextBash = queue.shift();
-                    console.error(nextBash)
+                    //console.error(nextBash)
                     handleBash(nextBash);
                 } else {
                     isRcloneRunning = false;
@@ -472,6 +439,18 @@ function handleBash(rcloneEvent) {
             })
 
         });
+}
+
+//获取封面
+function GetImage(imageUrl, jpgPath) {
+    const file = fs.createWriteStream(jpgPath);
+
+    https.get(imageUrl, function(response) {
+        response.pipe(file);
+        console.log('Image downloaded!');
+    }).on('error', function(error) {
+        console.error('Error downloading image:', error);
+    });
 }
 
 //转码-->aac
@@ -510,33 +489,78 @@ function Rclone(filePath, rclonePath) {
 }
 
 //写nfo
-function WriteNfo(metadata, nfoPath) {
-
-    // 生成 NFO 文件的内容
-    const nfoContent = `<?xml version="1.0" encoding="UTF-8" standalone="yes" ?>
+async function WriteNfo(video_id, metadata, nfoPath) {
+    let nfoContent;
+    if (YDA_KEY) {
+        let channelData
+        let videoData
+        await axios.get(`${YDA_URL}videos?part=snippet%2Cstatistics%2CliveStreamingDetails&id=${video_id}&key=${YDA_KEY}`, {
+                headers: {
+                    'Accept': 'application/json'
+                }
+            })
+            .then(response => {
+                videoData = response.data.items[0]
+            })
+            .catch(error => {
+                console.error(error);
+            });
+        await axios.get(`${YDA_URL}channels?part=snippet%2Cstatistics&id=${videoData.snippet.channelId}&key=${YDA_KEY}`, {
+                headers: {
+                    'Accept': 'application/json'
+                }
+            }).then(response => {
+                channelData = response.data.items[0]
+            })
+            .catch(error => {
+                console.error(error);
+            });
+        nfoContent = `<?xml version="1.0" encoding="UTF-8" standalone="yes" ?>
 <movie>
-    <title>${metadata.titles}</title>
+    <title>${videoData.snippet.title}</title>
+    <userrating>${videoData.statistics.viewCount?(10*videoData.statistics.likeCount/videoData.statistics.viewCount).toFixed(2):''}</userrating>
+    <viewCount>${videoData.statistics.viewCount}</viewCount>
+    <likeCount>${videoData.statistics.likeCount}</likeCount>
+    <plot>${escapeXml(videoData.snippet.description)}</plot>
+    <description>${escapeXml(channelData.snippet.description)}</description>
+    <mpaa>PG</mpaa>
+    <genre>Live</genre>
+    <genre>${channelData.snippet.country}</genre>
+    <genre>${channelData.snippet.customUrl}</genre>
+    <premiered>${moment(videoData.liveStreamingDetails.actualStartTime).format('YYYY-MM-DD')}</premiered>
+    <scheduledStartTime>${videoData.liveStreamingDetails.scheduledStartTime}</scheduledStartTime>
+    <actualStartTime>${videoData.liveStreamingDetails.actualStartTime}</actualStartTime>
+    <actualEndTime>${videoData.liveStreamingDetails.actualEndTime}</actualEndTime>
+    <director>${videoData.snippet.channelTitle}</director>
+    <writer>${channelData.snippet.title}</writer>
+    <actor>
+        <name>${channelData.snippet.title}</name>
+        <subscriberCount>${channelData.statistics.subscriberCount}</subscriberCount>
+        <type>Actor</type>
+        <thumb>${channelData.snippet.thumbnails.high.url}</thumb>
+    </actor>
+    <thumb>${videoData.snippet.thumbnails.maxres.url}</thumb>
+    <website>https://www.youtube.com/watch?v=${video_id}</website>
+</movie>`;
+    } else {
+        // 生成 NFO 文件的内容
+        nfoContent = `<?xml version="1.0" encoding="UTF-8" standalone="yes" ?>
+<movie>
+    <title>${metadata.title}</title>
     <plot>${metadata.plot}</plot>
     <year>${metadata.year}</year>
     <genre>${metadata.genre}</genre>
-    <cast>
-        <actor>
+    <actor>
         <name>${metadata.name}</name>
         <type>Actor</type>
         <thumb>${metadata.thumb}</thumb>
-        </actor>
-    </cast>
-    <episodedetails>
-        <season>${metadata.year}</season>
-        <episode>${metadata.data}</episode>
-        <title>${metadata.title}</title>
-        <premiered>${metadata.premiered}</premiered>
-        <videoid>${metadata.videoId}</videoid>
-    </episodedetails>
+    </actor>
     <poster>${metadata.cover}</poster>
     <cover>${metadata.cover}</cover>
     <website>${metadata.website}</website>
 </movie>`;
+    }
+
 
     // 将 NFO 文件内容写入文件
     fs.writeFile(`${nfoPath}`, nfoContent, function(err) {
@@ -544,5 +568,36 @@ function WriteNfo(metadata, nfoPath) {
         console.log('NFO file saved!');
     });
 }
+
+//写日志
+function Log(content) {
+    //写日志
+    fs.appendFile(logFile, JSON.stringify(content, null, 2) + '\n', (err) => {
+        if (err) throw err;
+        console.log('The match was appended to log.txt!');
+    });
+
+}
+
+//xml格式化函数
+function escapeXml(unsafe) {
+
+    return unsafe.replace(/[<>&'"]/g, function(c) {
+        switch (c) {
+            case '<':
+                return '&lt;';
+            case '>':
+                return '&gt;';
+            case '&':
+                return '&amp;';
+            case '\'':
+                return '&apos;';
+            case '"':
+                return '&quot;';
+        }
+    });
+}
+
+
 
 export default isMainRunning;
