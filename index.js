@@ -2,7 +2,6 @@ import dotenv from 'dotenv';
 dotenv.config();
 import fs from "fs";
 import { promisify } from 'util';
-//import {fork} from 'child_process';
 import isMainRunning from './index_you.js';
 
 const readFileAsync = promisify(fs.readFile);
@@ -31,7 +30,6 @@ try {
 } catch (err) {
     console.error(err);
 }
-
 
 //读取config.json，录制判别
 start();
@@ -67,9 +65,6 @@ async function start() {
             }
         }
 
-        /* let runningData = fs.readFileSync(runningLog);
-        let runningJson = JSON.parse(runningData); */
-
         // 判断哪些 youtubers 已经被移除了
         let removedYoutubers = runningJson.channelIds.filter(c => !youtubers.some(y => y.channelId === c.channelId));
         for (const youtuber of removedYoutubers) {
@@ -96,8 +91,7 @@ async function start() {
                         beforeVideoId: null,
                     }
                     isMainRunning(event);
-                    /* const childProcess = fork('./app.js');
-                    childProcess.send({ channelId: youtuber.channelId, channelName: youtuber.channelName }); */
+
                 }, Math.random() * 5000); // 随机延时 0 到 5000 毫秒
 
             } else {
@@ -105,13 +99,6 @@ async function start() {
             }
         }
         await writeFileAsync(runningLog, JSON.stringify(runningJson, null, 2));
-        /*  const fd = fs.openSync(runningLog, 'w');
-         //写入runningjson
-         fs.writeFileSync(fd, JSON.stringify(runningJson, null, 2));
-         // 刷新文件到磁盘
-         fs.fsyncSync(fd);
-         // 关闭文件句柄
-         fs.closeSync(fd); */
         console.log(`\n----------配置加载完毕----------`);
     } catch (err) {
         console.error(err);
