@@ -8,9 +8,8 @@ const readFileAsync = promisify(fs.readFile);
 const writeFileAsync = promisify(fs.writeFile);
 
 const CONFIG = process.env.CONFIG;
-const configLog = CONFIG + "/config.json";
-//const pidLog = CONFIG + "/pid.json";
-const runningLog = CONFIG + "/running.json";
+const configLog = CONFIG + '/config.json';
+const runningLog = CONFIG + '/running.json';
 // 记录任务是否正在运行中
 let running = false;
 
@@ -35,18 +34,20 @@ start();
 
 //监听文件变动
 fs.watch(configLog, () => {
-  if (!running) {
-    // 如果没有任务正在运行中
-    running = true; // 标记任务正在运行中
-    start()
-      .then(() => {
-        running = false; // 任务完成后重置标记
-      })
-      .catch((err) => {
-        console.error(err);
-        running = false; // 出错时也要重置标记
-      });
-  }
+  setTimeout(() => {
+    if (!running) {
+      // 如果没有任务正在运行中
+      running = true; // 标记任务正在运行中
+      start()
+        .then(() => {
+          running = false; // 任务完成后重置标记
+        })
+        .catch((err) => {
+          console.error(err);
+          running = false; // 出错时也要重置标记
+        });
+    }
+  }, 100); 
 });
 
 async function start() {
@@ -91,8 +92,9 @@ async function start() {
           const event = {
             channelId: youtuber.channelId,
             channelName: youtuber.channelName,
-            definition: youtuber.definition || "best",
-            isStreamlink: true,
+            definition: youtuber.definition ?? "best",
+            autoRecorder: youtuber.autoRecorder ?? true,
+            isStreamlink: youtuber.autoRecorder,
             beforeScheduledStartTime: null,
             beforeVideoId: null,
             status: null,
