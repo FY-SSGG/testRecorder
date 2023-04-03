@@ -1,31 +1,28 @@
 {
-    "youtubers": [{
-            "channelName": "SakuraMiko",
-            "channelId": "UC-hM6YJuNYVAmUWxeIr9FeA"
+    "youtubers": [
+        {
+            "channelName": "minatoaqua",
+            "channelId": "UC1opHUrw8rvnsadT-iGp7Cg",
+            "definition": "best",
+            "autoRecorder": true
         },
         {
-            "channelName": "MinatoAqua",
-            "channelId": "UC1opHUrw8rvnsadT-iGp7Cg"
+            "channelName": "kaguramea",
+            "channelId": "UCWCc8tO-uUl_7SJXIKJACMw",
+            "definition": "best",
+            "autoRecorder": true
         },
         {
-            "channelName": "EnnaAlouette",
-            "channelId": "UCR6qhsLpn62WVxCBK1dkLow"
+            "channelName": "ennaalouette",
+            "channelId": "UCR6qhsLpn62WVxCBK1dkLow",
+            "definition": "best",
+            "autoRecorder": true
         },
         {
-            "channelName": "NatsuiroMatsuri",
-            "channelId": "UCQ0UDLQCjY0rmuxCDE38FGg"
-        },
-        {
-            "channelName": "ReimuEndou",
-            "channelId": "UCBURM8S4LH7cRZ0Clea9RDA"
-        },
-        {
-            "channelName": "MurasakiShion",
-            "channelId": "UCXTpFs_3PqI41qX2d9tL2Rw"
-        },
-        {
-            "channelName": "TsunomakiWatame",
-            "channelId": "UCqm3BQLlJfvkTsX_hvm0UmA"
+            "channelName": "neurosama",
+            "channelId": "UCLHmLrj4pHHg3-iBJn_CqxA",
+            "definition": "worst",
+            "autoRecorder": false
         }
     ]
 }
