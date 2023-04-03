@@ -10,15 +10,20 @@ const bot = new TelegramBot(TG_TOKEN, {
     polling: false
 })
 
-function tgmessage(banner, text) {
+/**
+ * 发送带图片信息
+ * @param text 需要发送的消息
+ * @param timeout null或者延迟 单位:s
+ */
+function tgmessage(text, timeout) {
 
     const chatIds = CHAT_IDS.split(',');
 
     chatIds.forEach((chatId) => {
-        bot.sendMessage(chatId, `${banner}\n${text}`, { parse_mode: "HTML", disable_web_page_preview: true })
+        bot.sendMessage(chatId, text, { parse_mode: "HTML", disable_web_page_preview: true })
             .then(message => {
-                console.log(`Message sent: ${message.text}\n`);
-                deleteMessage(message, TG_TIMEOUTDELETE);
+                console.log(`Message sent:\n${message.text}\n`);
+                deleteMessage(message, timeout ?? TG_TIMEOUTDELETE);
             })
             .catch((error) => {
                 console.error('TG_Error:', error);
@@ -27,15 +32,21 @@ function tgmessage(banner, text) {
 
 }
 
-function tgphoto(url, text) {
+/**
+ * 发送带图片信息
+ * @param url 需要发送的图片地址
+ * @param text 需要发送的消息
+ * @param timeout null或者延迟 单位:s
+ */
+function tgphoto(url, text, timeout) {
 
     const chatIds = CHAT_IDS.split(',');
 
     chatIds.forEach((chatId) => {
         bot.sendPhoto(chatId, url, { caption: text, parse_mode: "HTML" })
             .then(message => {
-                console.log(`Message sent: ${message.caption}\n`);
-                deleteMessage(message, TG_TIMEOUTDELETE);
+                console.log(`pMessage sent:\n${message.caption}\n`);
+                deleteMessage(message, timeout ?? TG_TIMEOUTDELETE);
             })
             .catch((error) => {
                 console.error('TG_Error:', error);

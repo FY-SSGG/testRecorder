@@ -23,16 +23,15 @@ const runningLog = CONFIG + '/running.json';
 const logFile = CONFIG + '/log.json';
 
 // 队列，用于存储后处理事件
-const queue = [];
-// 是否有 FFmpeg 进程正在运行
 let isRcloneRunning = false;
-
-// 队列，用于存储事件
-const queueChannelId = [];
+const queue = [];
 
 // 队列，用于写出状态
 let isExchange = false;
 const queueExchange = [];
+
+// 队列，用于过滤重复
+const queueChannelId = [];
 
 /* const event = {
     channelId: 'UC1opHUrw8rvnsadT-iGp7Cg',
@@ -47,13 +46,11 @@ main(event); */
 //防止重复运行
 function isMainRunning(event) {
     if (!queueChannelId.includes(event.channelId)) {
-        queueChannelId.push(event.channelId)
-            //console.log(queueChannelId)
-        main(event)
+        queueChannelId.push(event.channelId);
+        main(event);
     } else {
         console.log(`'${event.channelName}' 已在队列中`)
     }
-
 }
 
 //主函数
@@ -62,46 +59,38 @@ async function main(event) {
     const channelName = event.channelName;
     const definition = event.definition;
     //const autoRecorder = event.autoRecorder;
-
     let thumbUrl = null
 
-    try {
-        const match = await getHttps(channelId);
-        let timeout = await isLivingAsync(match);
-        //console.log(channelName+'_timeout_'+timeout)
-        exchange()
-        delete event.name;
-        delete event.videoId;
-        delete event.pid;
+    const match = await getHttps(channelId);
+    let timeout = await isLivingAsync(match);
+    
+    exchange()
+    delete event.name;
+    delete event.videoId;
+    delete event.pid;
 
-        //判断是否循环调用
-        setTimeout(async () => {
-            event["definition"] = isChannelIdInConfigSync(channelId)
-            if (event.definition) {
-                main(event);
-            } else {
-                //移除数组中的对象
-                const index = queueChannelId.indexOf(channelId);
-                if (index !== -1) {
-                    queueChannelId.splice(index, 1);
-                }
-
-                const data = await readFileAsync(runningLog, "utf-8");
-                let json = JSON.parse(data);
-                delete json[channelId]
-                await writeFileAsync(runningLog,JSON.stringify(json, null, 2));
-
-                console.log(`${channelName}:stop`);
+    //判断是否循环调用
+    setTimeout(async () => {
+        event["definition"] = isChannelIdInConfigSync(channelId)
+        if (event.definition) {
+            main(event);
+        } else {
+            //移除数组中的对象
+            const index = queueChannelId.indexOf(channelId);
+            if (index !== -1) {
+                queueChannelId.splice(index, 1);
             }
-        }, timeout * 1000);
-    } catch (error) {
-        console.log(error);
-    }
+
+            delete event.definition;
+            exchange()
+        }
+    }, timeout * 1000);
+
 
     //获取https数据
     function getHttps(channelId) {
         return new Promise((resolve, reject) => {
-            const liveUrl = 'https://www.youtube.com/channel/' + channelId + '/live';
+            const liveUrl = `https://www.youtube.com/channel/${channelId}/live`;
             https.get(liveUrl, (response) => {
                 let data = '';
                 response.on('data', (chunk) => {
@@ -111,9 +100,9 @@ async function main(event) {
                 response.on('end', () => {
                     const regex = /ytInitialPlayerResponse\s*=\s*({.*});/;
                     const regexImage = /videoOwnerRenderer.*?":"(https[^="]+)/;
+
                     const imageMatch = data.match(regexImage);
                     thumbUrl = imageMatch ? imageMatch[1] : '';
-                    //console.log(thumbUrl);
 
                     const match = data.match(regex);
                     resolve(match)
@@ -125,7 +114,7 @@ async function main(event) {
         })
     }
 
-    //判断是否开播
+    //判断是否开播,返回循环时间
     async function isLivingAsync(match) {
         //默认循环的时间，！要是小数，用来排除超长待机的通知
         const timeoutDefault = 2700.5;
@@ -144,34 +133,33 @@ async function main(event) {
 
             event["isStreamlink"] = videoId !== event.beforeVideoId ? event.autoRecorder : event.isStreamlink
 
-            const url = 'https://www.youtube.com/channel/' + channelId;
-            const liveUrl = 'https://www.youtube.com/channel/' + channelId + '/live';
+            const url = `https://www.youtube.com/channel/${channelId}`;
+            const liveUrl = `https://www.youtube.com/channel/${channelId}/live`;
             const coverUrl = `https://i.ytimg.com/vi/${videoId}/maxresdefault.jpg`;
 
             switch (status) {
                 case "LIVE_STREAM_OFFLINE":
-                    //待机室开始时间
                     event["status"] = "upcoming";
-                    const scheduledStartTime = playerResponse.playabilityStatus.liveStreamability.liveStreamabilityRenderer.offlineSlate.liveStreamOfflineSlateRenderer.scheduledStartTime
+                    const scheduledStartTime = playerResponse.playabilityStatus.liveStreamability.liveStreamabilityRenderer.offlineSlate.liveStreamOfflineSlateRenderer.scheduledStartTime;
+                    const timeoutMath = timeMath(scheduledStartTime, timeout);
 
-                    let timeoutMath = timeMath(scheduledStartTime, timeout)
-                    if (!(timeoutMath === timeoutDefault) && (!(videoId === event.beforeVideoId) || !(scheduledStartTime === event.beforeScheduledStartTime))) {
+                    if (!(timeoutMath[0] === timeoutDefault) && (!(videoId === event.beforeVideoId) || !(scheduledStartTime === event.beforeScheduledStartTime))) {
                         event["beforeScheduledStartTime"] = scheduledStartTime;
                         
                         const starttime = moment.unix(scheduledStartTime).format('dddd, MMMM D, h:mm A (Z)')
-                        let text = `<b>${author}</b> <code>>></code> 直播预告！\n时间 <code>:</code> <b>${starttime}</b>\n标题 <code>:</code> <i><a href="${liveUrl}">${title}</a></i>`;
-                        tgphoto(coverUrl, text);
-                        //console.log(author + '开始时间：' + starttime)
+                        let text = `<b>${author}</b> <code>>></code> 直播预告！ <b>${event.autoRecorder ? 'T' : 'F'}</b>\n时间 <code>:</code> <b>${starttime}</b>\n标题 <code>:</code> <i><a href="${liveUrl}">${title}</a></i>`;
+                        
+                        tgphoto(coverUrl, text, timeoutMath[1]);
                     }
-                    timeout = timeoutMath;
+                    timeout = timeoutMath[0];
+
                     break;
                 case "OK":
                     
                     if (!(videoId === event.beforeVideoId && event.status === "live")) {
                         const isLive = playerResponse.videoDetails.isLive
-                        //console.log(isLive ? `${author} 正在直播` : `${author} 没播\n`)
                         event["status"] = "live";
-                        tgphoto(coverUrl, `🟡 <b><a href="${url}">${author}</a></b> <code>>></code> ${isLive ? '直播开始！' : 'null！'}\n标题 <code>:</code> <i><a href="${liveUrl}">${title}</a></i>`);
+                        tgphoto(coverUrl, `🟡 <b><a href="${url}">${author}</a></b> <code>>></code> ${isLive ? '直播开始！' : 'null！'} <b>${event.isStreamlink ? 'T' : 'F'}</b>\n标题 <code>:</code> <i><a href="${liveUrl}">${title}</a></i>`, null);
                     }
 
                     if (event.isStreamlink) {
@@ -205,7 +193,6 @@ async function main(event) {
                         title: title,
                         plot: `${author}-${timeId}`,
                         year: timeId.substring(0, 4),
-                        genre: 'Live',
                         name: channelName,
                         thumb: thumbUrl,
                         cover: coverUrl
@@ -213,9 +200,11 @@ async function main(event) {
                     runbash(rcloneEvent)
 
                     timeout = 5;
+
                     } else {
-                        console.log(`${channelName} 手动停止，跳过本场直播\n`)
+                        if (event.autoRecorder) console.log(`${channelName} 手动停止，跳过本场直播\n`);
                     }
+
                     break;
                 default:
                     Log({ playabilityStatus: playerResponse.playabilityStatus, videoDetails: playerResponse.videoDetails })
@@ -239,8 +228,7 @@ async function main(event) {
 
     //判断是否循环调用，返回录播清晰度
     function isChannelIdInConfigSync(channelId) {
-        //const data = fs.readFileSync(configLog);
-        let definition = 'best';
+        let definition;
         try {
             const configData = fs.readFileSync(configLog);
             const configJson = JSON.parse(configData);
@@ -271,70 +259,62 @@ async function main(event) {
         //console.log(`nunix-${timeunix}`);
         //console.log(`dunix-${differenceInSeconds}`)
 
-        if (differenceInSeconds >= 259200) {
-            //[72,) time
-            return timeout;
-        } else if (differenceInSeconds >= 86400 && differenceInSeconds < 259200) {
-            //[24,72) time/3
+        if (differenceInSeconds >= 172800) {
+            //[48,) time
+            return [timeout,differenceInSeconds];
+        } else if (differenceInSeconds >= 86400 && differenceInSeconds < 172800) {
+            //[24,48) time/3
             timeout = differenceInSeconds / 3;
-            return Math.ceil(timeout);
+            return [Math.ceil(timeout),differenceInSeconds];
         } else if (differenceInSeconds >= 3600 && differenceInSeconds < 86400) {
             //[1,24) time/2
             timeout = differenceInSeconds / 2;
-            return Math.ceil(timeout);
+            return [Math.ceil(timeout),differenceInSeconds];
         } else if (differenceInSeconds > 0 && differenceInSeconds < 3600) {
-            //([)0,1) time
+            //(0,1) time
             timeout = differenceInSeconds;
-            return timeout;
+            return [timeout,differenceInSeconds];
         } else if (differenceInSeconds >= -10800 && differenceInSeconds <= 0) {
             //[-3,0] 60
-            console.log(`dunix-${differenceInSeconds}`)
+            //console.log(`dunix-${differenceInSeconds}`)
             timeout = 60;
-            return timeout;
+            return [timeout,differenceInSeconds];
         } else {
-            console.log(`dunix-${differenceInSeconds}`)
+            //console.log(`dunix-${differenceInSeconds}`)
             //(,-3) time
-            return timeout;
+            return [timeout,differenceInSeconds];
         }
     }
 
     //下载
     async function StreamlinkAsync(Path, url, definition, author) {
-        try {
 
-            let pid = null;
-            tgmessage(`🟢 <b>${author}</b> <code>>></code> 录制开始！`, '')
-            const result = spawn('streamlink', ['--hls-live-restart', '--loglevel', 'warning', '-o', `${Path}`, `${url}`, definition]);
-            pid = result.pid;
-            event.pid = pid;
-            exchange()
+        let pid = null;
+        tgmessage(`🟢 <b>${author}</b> <code>>></code> 录制开始！`, 14400)
+        const result = spawn('streamlink', ['--hls-live-restart', '--loglevel', 'warning', '-o', `${Path}`, `${url}`, definition]);
+        pid = result.pid;
+        event.pid = pid;
+        exchange()
 
-            await new Promise((resolve, reject) => {
-                result.on('exit', (code, signal) => {
-                    if (code === 0) {
-                        console.log(`视频已下载到：${Path}`);
-                        resolve();
-                    } else if (code === 130) {
-                        //exchange(channelId)
-                        event["isStreamlink"] = false;
-                        console.log(`（手动）视频地址：${Path}`);
-                        resolve();
-                    } else if (code === 1) {
-                        console.error(`（超时？）视频地址：${Path}`);
-                        resolve();
-                    } else {
-                        /* console.error(`streamlink failed with code ${code}`);
-                        console.error(`streamlink failed with signal ${signal}`); */
-                        reject(`code:${code}\nsignal:${signal}`);
-                    }
-                });
+        await new Promise((resolve, reject) => {
+            result.on('exit', (code, signal) => {
+                if (code === 0) {
+                    console.log(`视频已下载到：${Path}`);
+                    resolve();
+                } else if (code === 130) {
+                    event["isStreamlink"] = false;
+                    console.log(`（手动）视频地址：${Path}`);
+                    resolve();
+                } else if (code === 1) {
+                    console.error(`（超时？）视频地址：${Path}`);
+                    resolve();
+                } else {
+                    reject(`code:${code}\nsignal:${signal}`);
+                }
             });
-            event.pid = null;
-            tgmessage(`🔴 <b>${author}</b> <code>>></code> 录制结束！`, '')
-
-        } catch (error) {
-            console.error(error)
-        }
+        });
+        event.pid = null;
+        tgmessage(`🔴 <b>${author}</b> <code>>></code> 录制结束！`, 14400)
 
     }
 
@@ -343,27 +323,22 @@ async function main(event) {
         const exchangeEvent = {
             channelId: event.channelId,
             channelName: event.channelName,
-            definition: event.definition,
+            definition: event.definition ?? null,
             autoRecorder: event.autoRecorder,
             name: event.name ?? '',
             videoId: event.videoId ?? '',
             pid: event.pid ?? '',
             isStreamlink: event.isStreamlink
         }
-        //console.log(exchangeEvent);
         runExchange(exchangeEvent)
     }
 }
 
 //处理上传相关事件
 function runbash(rcloneEvent) {
-    // 检查当前是否有 FFmpeg 进程正在运行
     if (isRcloneRunning) {
-        // 如果有，将事件添加到队列中
         queue.push(rcloneEvent);
     } else {
-        // 如果没有，立即处理事件
-        //console.error(rcloneEvent)
         handleBash(rcloneEvent);
     }
 }
@@ -388,7 +363,6 @@ async function handleBash(rcloneEvent) {
         title: rcloneEvent.title,
         plot: rcloneEvent.plot,
         year: rcloneEvent.year,
-        genre: rcloneEvent.genre,
         name: rcloneEvent.name,
         thumb: rcloneEvent.thumb,
         cover: rcloneEvent.cover,
@@ -409,7 +383,7 @@ async function handleBash(rcloneEvent) {
                 //console.log(Number(stdout));
                 let a = definition === 'worst' ? 3 : 4;
                 if (a === Number(stdout)) {
-                    tgmessage(`🎊 <b>${rcloneEvent.name}</b> <code>>></code> 上传成功！`, '');
+                    tgmessage(`🎊 <b>${rcloneEvent.name}</b> <code>>></code> 上传成功！`, null);
                     spawn('rm', ['-rf', `${folderPath}`]).on('close', code => console.log(`[    rm-exit  ]: ${code}`))
                 } else {
                     tgnotice(`🚧 <b>${rcloneEvent.name}</b> <code>>></code> <b><i><u>上传失败！</u></i></b>`, '');
@@ -447,56 +421,56 @@ async function handleBash(rcloneEvent) {
                 })
                 .then(response => { channelData = response.data.items[0] })
                 .catch(error => { console.error(error) });
+
+            nfoContent = `<?xml version="1.0" encoding="UTF-8" standalone="yes" ?>
+<movie>
+    <title>${escapeXml(videoData.snippet.title)}</title>
+    <userrating>${videoData.statistics.viewCount?(10*videoData.statistics.likeCount/videoData.statistics.viewCount).toFixed(2):''}</userrating>
+    <plot>${escapeXml(videoData.snippet.description)}</plot>
+    <description>${escapeXml(channelData.snippet.description)}</description>
+    <mpaa>PG</mpaa>
+    <genre>Live</genre>
+    <genre>${videoData.snippet.defaultAudioLanguage}</genre>
+    <genre>${channelData.snippet.customUrl}</genre>
+    <country>${(channelData.snippet.country).toUpperCase()}</country>
+    <premiered>${moment(videoData.liveStreamingDetails.actualStartTime).format('YYYY-MM-DD')}</premiered>
+    <director>${videoData.snippet.channelTitle}</director>
+    <writer>${channelData.snippet.title}</writer>
+    <actor>
+        <name>${escapeXml(videoData.snippet.channelTitle)}</name>
+        <type>Actor</type>
+        <thumb>${channelData.snippet.thumbnails.high.url}</thumb>
+    </actor>
+    <viewCount>${videoData.statistics.viewCount}</viewCount>
+    <likeCount>${videoData.statistics.likeCount}</likeCount>
+    <scheduledStartTime>${videoData.liveStreamingDetails.scheduledStartTime}</scheduledStartTime>
+    <actualStartTime>${videoData.liveStreamingDetails.actualStartTime}</actualStartTime>
+    <actualEndTime>${videoData.liveStreamingDetails.actualEndTime}</actualEndTime>
+    <subscriberCount>${channelData.statistics.subscriberCount}</subscriberCount>
+    <thumb>${videoData.snippet.thumbnails.maxres.url}</thumb>
+    <website>https://www.youtube.com/watch?v=${videoId}</website>
+</movie>`;
+
             coverUrl = videoData.snippet.thumbnails.maxres.url;
-            nfoContent = `<?xml version="1.0" encoding="UTF-8" standalone="yes" ?>
-    <movie>
-        <title>${escapeXml(videoData.snippet.title)}</title>
-        <userrating>${videoData.statistics.viewCount?(10*videoData.statistics.likeCount/videoData.statistics.viewCount).toFixed(2):''}</userrating>
-        <plot>${escapeXml(videoData.snippet.description)}</plot>
-        <description>${escapeXml(channelData.snippet.description)}</description>
-        <mpaa>PG</mpaa>
-        <genre>Live</genre>
-        <genre>${videoData.snippet.defaultAudioLanguage}</genre>
-        <genre>${channelData.snippet.customUrl}</genre>
-        <country>${(channelData.snippet.country).toUpperCase()}</country>
-        <premiered>${moment(videoData.liveStreamingDetails.actualStartTime).format('YYYY-MM-DD')}</premiered>
-        <director>${videoData.snippet.channelTitle}</director>
-        <writer>${channelData.snippet.title}</writer>
-        <actor>
-            <name>${escapeXml(videoData.snippet.channelTitle)}</name>
-            <type>Actor</type>
-            <thumb>${channelData.snippet.thumbnails.high.url}</thumb>
-        </actor>
-        <viewCount>${videoData.statistics.viewCount}</viewCount>
-        <likeCount>${videoData.statistics.likeCount}</likeCount>
-        <scheduledStartTime>${videoData.liveStreamingDetails.scheduledStartTime}</scheduledStartTime>
-        <actualStartTime>${videoData.liveStreamingDetails.actualStartTime}</actualStartTime>
-        <actualEndTime>${videoData.liveStreamingDetails.actualEndTime}</actualEndTime>
-        <subscriberCount>${channelData.statistics.subscriberCount}</subscriberCount>
-        <thumb>${videoData.snippet.thumbnails.maxres.url}</thumb>
-        <website>https://www.youtube.com/watch?v=${videoId}</website>
-    </movie>`;
         } else {
-            coverUrl = metadata.cover;
-            // 生成 NFO 文件的内容
             nfoContent = `<?xml version="1.0" encoding="UTF-8" standalone="yes" ?>
-    <movie>
-        <title>${metadata.title}</title>
-        <plot>${metadata.plot}</plot>
-        <year>${metadata.year}</year>
-        <genre>${metadata.genre}</genre>
-        <actor>
-            <name>${metadata.name}</name>
-            <type>Actor</type>
-            <thumb>${metadata.thumb}</thumb>
-        </actor>
-        <cover>${metadata.cover}</cover>
-        <website>https://www.youtube.com/watch?v=${videoId}</website>
-    </movie>`;
+<movie>
+    <title>${metadata.title}</title>
+    <plot>${metadata.plot}</plot>
+    <year>${metadata.year}</year>
+    <genre>Live</genre>
+    <actor>
+        <name>${metadata.name}</name>
+        <type>Actor</type>
+        <thumb>${metadata.thumb}</thumb>
+    </actor>
+    <cover>${metadata.cover}</cover>
+    <website>https://www.youtube.com/watch?v=${videoId}</website>
+</movie>`;
+
+            coverUrl = metadata.cover;
         }
 
-        // 将 NFO 文件内容写入文件
-        //await writeFileAsync(nfoPath,nfoContent)
         fs.writeFile(`${nfoPath}`, nfoContent, function(err) {
             if (err) throw err;
             console.log('NFO file saved!');
@@ -588,12 +562,10 @@ async function handleBash(rcloneEvent) {
 
 //写日志
 function Log(content) {
-    //写日志
     fs.appendFile(logFile, JSON.stringify(content, null, 2) + '\n', (err) => {
         if (err) throw err;
         console.log('The match was appended to log.txt!');
     });
-
 }
 
 //处理写出相关事件
@@ -610,38 +582,48 @@ async function handleExchange(exchangeEvent) {
 
     // 标记进程正在运行
     isExchange = true;
-    const nowevent={
-        channelName: exchangeEvent.channelName,
-        definition: exchangeEvent.definition,
-        autoRecorder: exchangeEvent.autoRecorder,
-        name: exchangeEvent.name,
-        videoId: exchangeEvent.videoId,
-        pid: exchangeEvent.pid,
-        isStreamlink: exchangeEvent.isStreamlink
-    }
-    const data = await readFileAsync(runningLog, "utf-8");
-    let json = JSON.parse(data);
-    
-    //参数发生改变则写入running.json
-    if (JSON.stringify(json[exchangeEvent.channelId])!==JSON.stringify(nowevent)) {
+    try {
+        const data = await readFileAsync(runningLog, "utf-8");
+        let json = JSON.parse(data);
 
-        json[exchangeEvent.channelId]={
-            channelName: exchangeEvent.channelName,
-            definition: exchangeEvent.definition,
-            autoRecorder: exchangeEvent.autoRecorder,
-            name: exchangeEvent.name,
-            videoId: exchangeEvent.videoId,
-            pid: exchangeEvent.pid,
-            isStreamlink: exchangeEvent.isStreamlink
+        if (exchangeEvent.definition) {
+            const nowevent={
+                channelName: exchangeEvent.channelName,
+                definition: exchangeEvent.definition,
+                autoRecorder: exchangeEvent.autoRecorder,
+                name: exchangeEvent.name,
+                videoId: exchangeEvent.videoId,
+                pid: exchangeEvent.pid,
+                isStreamlink: exchangeEvent.isStreamlink
+            }
+            
+            //参数发生改变则写入running.json
+            if (JSON.stringify(json[exchangeEvent.channelId])!==JSON.stringify(nowevent)) {
+
+                json[exchangeEvent.channelId]={
+                    channelName: exchangeEvent.channelName,
+                    definition: exchangeEvent.definition,
+                    autoRecorder: exchangeEvent.autoRecorder,
+                    name: exchangeEvent.name,
+                    videoId: exchangeEvent.videoId,
+                    pid: exchangeEvent.pid,
+                    isStreamlink: exchangeEvent.isStreamlink
+                }
+            
+                await writeFileAsync(runningLog,JSON.stringify(json, null, 2));
+            }
+        } else {
+            delete json[exchangeEvent.channelId]
+            await writeFileAsync(runningLog,JSON.stringify(json, null, 2));
+            console.log(`${exchangeEvent.channelName}:stop`);
         }
-    
-        await writeFileAsync(runningLog,JSON.stringify(json, null, 2));
+
+    } catch (error) {
+        console.log('exchange:' + error)
     }
-    
+
     if (queueExchange.length > 0) {
-        //console.log("处理下一事件")
         const nextExchange = queueExchange.shift();
-        //console.error(nextBash)
         handleExchange(nextExchange);
     } else {
         isExchange = false;
