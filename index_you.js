@@ -14,6 +14,7 @@ const writeFileAsync = promisify(fs.writeFile);
 
 const dir = process.env.DOWNLOADDIR;
 const RCLONEDIR = process.env.RCLONEDIR;
+const DANMUFC = process.env.DANMUFC;
 const CONFIG = process.env.CONFIG;
 const YDA_KEY = process.env.YDA_KEY;
 const YDA_URL = process.env.YDA_URL;
@@ -176,9 +177,11 @@ async function main(event) {
                     const aacPath = folderPath + '/' + filename + '.aac'
                     const jpgPath = folderPath + '/' + filename + '.jpg'
                     const nfoPath = folderPath + '/' + filename + '.nfo'
+                    const xmlPath = folderPath + '/' + filename + '.xml'
+                    const assPath = folderPath + '/' + filename + '.ass'
 
                     //下载
-                    await StreamlinkAsync(flvPath, liveUrl, definition, author)
+                    await StreamlinkAsync(flvPath, liveUrl, definition, author, xmlPath)
 
                     //排队上传
                     const rcloneEvent = {
@@ -188,6 +191,8 @@ async function main(event) {
                         rclonePath: rclonePath,
                         nfoPath: nfoPath,
                         jpgPath: jpgPath,
+                        xmlPath: xmlPath,
+                        assPath: assPath,
                         definition: definition,
                         videoId: videoId,
                         title: title,
@@ -287,13 +292,16 @@ async function main(event) {
     }
 
     //下载
-    async function StreamlinkAsync(Path, url, definition, author) {
+    async function StreamlinkAsync(Path, url, definition, author, xmlPath) {
 
         let pid = null;
         tgmessage(`🟢 <b>${author}</b> <code>>></code> 录制开始！`, 14400)
+        const videoStartTime = new Date().getTime();
         const result = spawn('streamlink', ['--hls-live-restart', '--loglevel', 'warning', '-o', `${Path}`, `${url}`, definition]);
         pid = result.pid;
         event.pid = pid;
+        
+        getChatMessages(event.videoId, videoStartTime, xmlPath)
         exchange()
 
         await new Promise((resolve, reject) => {
@@ -316,6 +324,96 @@ async function main(event) {
         event.pid = null;
         tgmessage(`🔴 <b>${author}</b> <code>>></code> 录制结束！`, 14400)
 
+    }
+
+    //获取弹幕
+    async function getChatMessages(videoId, videoStartTime, xmlPath) {
+        let b = 0;
+        let t = event.t ?? 40;
+        const processedMessageIds = new Set();
+        let nextPageToken = null;
+        let interval = setInterval(async () => {
+            //console.log('主循环b' + '"' + b + '"')
+            let a = [0,0];
+            if (event.pid) {
+                //console.log('继续循环');
+                if ( b === 0 || b >= t) {
+                    a = await writeXml(videoId, nextPageToken, xmlPath)
+                    //console.log(data)
+                    //console.log(a)
+                    //console.log(b+'_'+a[1]/1000+'_'+a[0])
+                    if (a[0] > 40 && t > 1 + a[1]/1000) {
+                        t--;
+                    } else if(a[0] < 40 && t < 180){
+                            t++;
+                    }
+                    //console.log('辅循环a' + '"' + a[0] + '"')
+                    //console.log('时间回调t' + '"' + t + '"')
+                    b = 0;
+                }
+                b++;
+            } else {
+                
+                if (b > a[1]/1000) {
+                    writeXml(videoId, nextPageToken, xmlPath)
+                    event['t'] = t;
+                }
+                clearInterval(interval);
+                delete event.liveChatId;
+                //console.log('结束循环');
+            }
+            
+          }, 1000);
+    
+        async function writeXml(videoId, PageToken, xmlPath) {
+            let videoData
+            if (!event['liveChatId']) {
+                await axios.get(`${YDA_URL}videos?part=snippet%2Cstatistics%2CliveStreamingDetails&id=${videoId}&key=${YDA_KEY}`, {
+                    headers: { 'Accept': 'application/json' }
+                })
+                .then(response => { videoData = response.data.items[0] })
+                .catch(error => { console.error(error) });
+                event['liveChatId'] = videoData.liveStreamingDetails.activeLiveChatId
+            }
+            
+            //console.log(videoData)
+            
+            let data
+            let url = `${YDA_URL}liveChat/messages?liveChatId=${event.liveChatId}&part=id%2Csnippet%2CauthorDetails${PageToken?'&pageToken='+PageToken:''}&key=${YDA_KEY}`
+            //console.log(url)
+            await axios.get(url, {
+                headers: { 'Accept': 'application/json' }
+            })
+            .then(response => { data = response.data })
+            .catch(error => { console.error(error) });
+            let a = 0;
+            if (data) {
+                const messages = data.items;
+                nextPageToken = data?.nextPageToken ?? null;
+                for (const message of messages) {
+                    // 如果这条消息的ID已经被处理过了，就跳过
+                    if (processedMessageIds.has(message.id)) {
+                        continue;
+                    }
+                    a++;
+                    const chatMessageTime = new Date(message.snippet.publishedAt).getTime();
+                    const diffmessageTime = chatMessageTime - videoStartTime;
+                    const colors = message.authorDetails.isChatOwner ? '16772431' : message.authorDetails.isChatModerator ? '14893055' : message.authorDetails.isChatSponsor ? '5816798' : '16777215'
+                    let text = `<d p="${diffmessageTime/1000},${message.authorDetails.isChatOwner ? '5' : '1'},25,${colors},${chatMessageTime},0,${message.authorDetails.channelId},0" user="${message.authorDetails.displayName}">${escapeXml(message.snippet.displayMessage.replace(/:([^:]+):/g, '[$1]'))}</d>\n`
+                    fs.appendFile(xmlPath, text , (err) => {
+                        if (err) throw err;
+                        // 这里可以将聊天消息保存到数据库、文件等
+                        //console.log(`保存消息：${message.snippet.displayMessage}`);
+                        });
+    
+                    // 将这条消息的ID添加到已处理消息ID的Set中
+                    processedMessageIds.add(message.id);
+                }
+                
+            }
+            //返回新增信息数、最小请求周期
+            return [ a , data.pollingIntervalMillis ?? 10000]
+        }
     }
 
     //向running.json传递当前状态参数
@@ -355,6 +453,8 @@ async function handleBash(rcloneEvent) {
     const rclonePath = rcloneEvent.rclonePath;
     const nfoPath = rcloneEvent.nfoPath;
     const jpgPath = rcloneEvent.jpgPath;
+    const xmlPath = rcloneEvent.xmlPath;
+    const assPath = rcloneEvent.assPath;
     const videoId = rcloneEvent.videoId;
     const definition = rcloneEvent.definition;
 
@@ -367,9 +467,14 @@ async function handleBash(rcloneEvent) {
         thumb: rcloneEvent.thumb,
         cover: rcloneEvent.cover,
     };
-
+    
     const coverUrl = await WriteNfo(videoId, metadata, nfoPath);
+
+    const danmucl = spawn(DANMUFC, ["-o", "ass", `${assPath}`, "-i", "xml", `${xmlPath}`, "-b", "REPEAT", "--ignore-warnings"]);
+    danmucl.on("close", code=> console.log(`[danmucl-exit ] : ${code}`));
+    
     await GetImage(coverUrl, jpgPath)
+
     Ffmpeg(beforePath, afterPath)
         .then(() => Rclone(folderPath, rclonePath, definition))
         .then(() => {
@@ -381,12 +486,12 @@ async function handleBash(rcloneEvent) {
                 //console.log('data received:', data);
                 const stdout = data.toString().trim();
                 //console.log(Number(stdout));
-                let a = definition === 'worst' ? 3 : 4;
+                let a = definition === 'worst' ? 4 : 6;
                 if (a === Number(stdout)) {
                     tgmessage(`🎊 <b>${rcloneEvent.name}</b> <code>>></code> 上传成功！`, null);
                     spawn('rm', ['-rf', `${folderPath}`]).on('close', code => console.log(`[    rm-exit  ]: ${code}`))
                 } else {
-                    tgnotice(`🚧 <b>${rcloneEvent.name}</b> <code>>></code> <b><i><u>上传失败！</u></i></b>`, '');
+                    tgmessage(`🚧 <b>${rcloneEvent.name}</b> <code>>></code> <b><i><u>上传失败！</u></i></b>`, null);
                 };
             });
 
@@ -512,7 +617,7 @@ async function handleBash(rcloneEvent) {
     function Rclone(folderPath, rclonePath, definition) {
         return new Promise((resolve, reject) => {
             if (definition === 'worst') {
-                const rclone = spawn('rclone', ['copy', `${folderPath}/`, `${rclonePath}/`, '--min-size', '1b', '--exclude', '*.flv', '--onedrive-chunk-size', '25600k', '-q']);
+                const rclone = spawn('rclone', ['copy', `${folderPath}/`, `${rclonePath}/`, '--min-size', '1b', '--exclude', '*.flv', '--exclude', '*.xml', '--onedrive-chunk-size', '25600k', '-q']);
                 rclone.stderr.on('data', data => console.log(`[rclone-stderr]: ${data}`))
                 rclone.stdout.on('data', data => console.log(`[rclone-stderr]: ${data}`))
                 rclone.on('close', code => {
@@ -539,25 +644,7 @@ async function handleBash(rcloneEvent) {
             
         })
     }
-
-    //xml格式化函数
-    function escapeXml(unsafe) {
-
-        return unsafe.replace(/[<>&'"]/g, function(c) {
-            switch (c) {
-                case '<':
-                    return '&lt;';
-                case '>':
-                    return '&gt;';
-                case '&':
-                    return '&amp;';
-                case '\'':
-                    return '&apos;';
-                case '"':
-                    return '&quot;';
-            }
-        });
-    }
+    
 }
 
 //写日志
@@ -629,6 +716,25 @@ async function handleExchange(exchangeEvent) {
         isExchange = false;
     }
 
+}
+
+//xml格式化函数
+function escapeXml(unsafe) {
+
+    return unsafe.replace(/[<>&'"]/g, function(c) {
+        switch (c) {
+            case '<':
+                return '&lt;';
+            case '>':
+                return '&gt;';
+            case '&':
+                return '&amp;';
+            case '\'':
+                return '&apos;';
+            case '"':
+                return '&quot;';
+        }
+    });
 }
 
 
