@@ -110,7 +110,7 @@ async function main(event) {
                 });
             }).on('error', (error) => {
                 reject;
-                console.error(error);
+                console.error(`[${moment().format()}]: ${error}`);
             });
         })
     }
@@ -247,7 +247,7 @@ async function main(event) {
                 event["isStreamlink"] = runningJson[channelId].isStreamlink;
             }
         } catch (error) {
-            console.error(error);
+            console.error(`[${moment().format()}]: ${error}`);
         }
         
         return definition;
@@ -372,7 +372,7 @@ async function main(event) {
                     headers: { 'Accept': 'application/json' }
                 })
                 .then(response => { videoData = response.data.items[0] })
-                .catch(error => { console.error(error) });
+                .catch(error => { console.error(`[${moment().format()}]: ${error}`) });
                 event['liveChatId'] = videoData.liveStreamingDetails.activeLiveChatId
             }
             
@@ -385,7 +385,7 @@ async function main(event) {
                 headers: { 'Accept': 'application/json' }
             })
             .then(response => { data = response.data })
-            .catch(error => { console.error(error) });
+            .catch(error => { console.error(`[${moment().format()}]: ${error}`) });
             let a = 0;
             if (data) {
                 const messages = data.items;
@@ -412,7 +412,7 @@ async function main(event) {
                 
             }
             //返回新增信息数、最小请求周期
-            return [ a , data.pollingIntervalMillis ?? 10000]
+            return [ a , data?.pollingIntervalMillis ?? 10000]
         }
     }
 
@@ -471,7 +471,7 @@ async function handleBash(rcloneEvent) {
     const coverUrl = await WriteNfo(videoId, metadata, nfoPath);
 
     const danmucl = spawn(DANMUFC, ["-o", "ass", `${assPath}`, "-i", "xml", `${xmlPath}`, "-b", "REPEAT", "--ignore-warnings"]);
-    danmucl.on("close", code=> console.log(`[danmucl-exit ] : ${code}`));
+    danmucl.on("close", code=> console.log(`[danmucl-exit ]: ${code}`));
     
     await GetImage(coverUrl, jpgPath)
 
@@ -520,12 +520,12 @@ async function handleBash(rcloneEvent) {
                     headers: { 'Accept': 'application/json' }
                 })
                 .then(response => { videoData = response.data.items[0] })
-                .catch(error => { console.error(error) });
+                .catch(error => { console.error(`[${moment().format()}]: ${error}`) });
             await axios.get(`${YDA_URL}channels?part=snippet%2Cstatistics&id=${videoData.snippet.channelId}&key=${YDA_KEY}`, {
                     headers: { 'Accept': 'application/json' }
                 })
                 .then(response => { channelData = response.data.items[0] })
-                .catch(error => { console.error(error) });
+                .catch(error => { console.error(`[${moment().format()}]: ${error}`) });
 
             nfoContent = `<?xml version="1.0" encoding="UTF-8" standalone="yes" ?>
 <movie>
