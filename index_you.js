@@ -135,7 +135,8 @@ async function main(event) {
             event["isStreamlink"] = videoId !== event.beforeVideoId ? event.autoRecorder : event.isStreamlink
 
             const url = `https://www.youtube.com/channel/${channelId}`;
-            const liveUrl = `https://www.youtube.com/channel/${channelId}/live`;
+            const liveChannelUrl = `https://www.youtube.com/channel/${channelId}/live`;
+            const liveVideoUrl = `https://www.youtube.com/watch?v=${videoId}`;
             const coverUrl = `https://i.ytimg.com/vi/${videoId}/maxresdefault.jpg`;
 
             switch (status) {
@@ -148,9 +149,9 @@ async function main(event) {
                         event["beforeScheduledStartTime"] = scheduledStartTime;
                         
                         const starttime = moment.unix(scheduledStartTime).format('dddd, MMMM D, h:mm A (Z)')
-                        let text = `<b>${author}</b> <code>>></code> 直播预告！ <b>${event.autoRecorder ? 'T' : 'F'}</b>\n时间 <code>:</code> <b>${starttime}</b>\n标题 <code>:</code> <i><a href="${liveUrl}">${title}</a></i>`;
+                        let text = `<b>${author}</b> <code>>></code> 直播预告！ <b>${event.autoRecorder ? 'T' : 'F'}</b>\n时间 <code>:</code> <b>${starttime}</b>\n标题 <code>:</code> <i><a href="${liveChannelUrl}">${title}</a></i>`;
                         
-                        tgphoto(coverUrl, text, timeoutMath[1]);
+                        tgphoto(coverUrl, text, timeoutMath[1] + 600);
                     }
                     timeout = timeoutMath[0];
 
@@ -160,7 +161,7 @@ async function main(event) {
                     if (!(videoId === event.beforeVideoId && event.status === "live")) {
                         const isLive = playerResponse.videoDetails.isLive
                         event["status"] = "live";
-                        tgphoto(coverUrl, `🟡 <b><a href="${url}">${author}</a></b> <code>>></code> ${isLive ? '直播开始！' : 'null！'} <b>${event.isStreamlink ? 'T' : 'F'}</b>\n标题 <code>:</code> <i><a href="${liveUrl}">${title}</a></i>`, null);
+                        tgphoto(coverUrl, `🟡 <b><a href="${url}">${author}</a></b> <code>>></code> ${isLive ? '直播开始！' : 'null！'} <b>${event.isStreamlink ? 'T' : 'F'}</b>\n标题 <code>:</code> <i><a href="${liveVideoUrl}">${title}</a></i>`, null);
                     }
 
                     if (event.isStreamlink) {
@@ -181,7 +182,7 @@ async function main(event) {
                     const assPath = folderPath + '/' + filename + '.ass'
 
                     //下载
-                    await StreamlinkAsync(flvPath, liveUrl, definition, author, xmlPath)
+                    await StreamlinkAsync(flvPath, liveChannelUrl, definition, author, xmlPath)
 
                     //排队上传
                     const rcloneEvent = {
@@ -264,29 +265,29 @@ async function main(event) {
         //console.log(`nunix-${timeunix}`);
         //console.log(`dunix-${differenceInSeconds}`)
 
-        if (differenceInSeconds >= 172800) {
-            //[48,) time
+        if (differenceInSeconds >= 172800 - 600) {
+            //[48h - 10min,) time
             return [timeout,differenceInSeconds];
-        } else if (differenceInSeconds >= 86400 && differenceInSeconds < 172800) {
-            //[24,48) time/3
+        } else if (differenceInSeconds >= 86400 && differenceInSeconds < 172800 - 600) {
+            //[24h,48h - 10min) time/3
             timeout = differenceInSeconds / 3;
             return [Math.ceil(timeout),differenceInSeconds];
         } else if (differenceInSeconds >= 3600 && differenceInSeconds < 86400) {
-            //[1,24) time/2
+            //[1h,24h) time/2
             timeout = differenceInSeconds / 2;
             return [Math.ceil(timeout),differenceInSeconds];
         } else if (differenceInSeconds > 0 && differenceInSeconds < 3600) {
-            //(0,1) time
+            //(0,1h) time
             timeout = differenceInSeconds;
             return [timeout,differenceInSeconds];
         } else if (differenceInSeconds >= -10800 && differenceInSeconds <= 0) {
-            //[-3,0] 60
+            //[-3h,0] 60
             //console.log(`dunix-${differenceInSeconds}`)
             timeout = 60;
             return [timeout,differenceInSeconds];
         } else {
             //console.log(`dunix-${differenceInSeconds}`)
-            //(,-3) time
+            //(,-3h) time
             return [timeout,differenceInSeconds];
         }
     }
@@ -527,7 +528,7 @@ async function handleBash(rcloneEvent) {
                 .then(response => { channelData = response.data.items[0] })
                 .catch(error => { console.error(`[${moment().format()}]: ${error}`) });
 
-            nfoContent = `<?xml version="1.0" encoding="UTF-8" standalone="yes" ?>
+            nfoContent = `<?xml version="1.0" encoding="UTF-8"?>
 <movie>
     <title>${escapeXml(videoData.snippet.title)}</title>
     <userrating>${videoData.statistics.viewCount?(10*videoData.statistics.likeCount/videoData.statistics.viewCount).toFixed(2):''}</userrating>
