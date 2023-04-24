@@ -16,8 +16,12 @@ const dir = process.env.DOWNLOADDIR;
 const RCLONEDIR = process.env.RCLONEDIR;
 const DANMUFC = process.env.DANMUFC;
 const CONFIG = process.env.CONFIG;
-const YDA_KEY = process.env.YDA_KEY;
+const YDA_KEYS = process.env.YDA_KEYS.split(',');
 const YDA_URL = process.env.YDA_URL;
+
+let currentkey = 0;
+let YDA_KEY = YDA_KEYS[0];
+
 
 const configLog = CONFIG + '/config.json';
 const runningLog = CONFIG + '/running.json';
@@ -66,7 +70,7 @@ async function main(event) {
     let timeout = await isLivingAsync(match);
     
     exchange()
-    delete event.name;
+    //delete event.name;
     delete event.videoId;
     delete event.pid;
 
@@ -139,6 +143,10 @@ async function main(event) {
             const liveVideoUrl = `https://www.youtube.com/watch?v=${videoId}`;
             const coverUrl = `https://i.ytimg.com/vi/${videoId}/maxresdefault.jpg`;
 
+            if (event.status === "live" && !(videoId === event.beforeVideoId)) {
+                tgmessage(`🔴 <b>${event.name}</b> <code>>></code> ${event.beforeVideoId}直播结束！`, null)
+            };
+
             switch (status) {
                 case "LIVE_STREAM_OFFLINE":
                     event["status"] = "upcoming";
@@ -158,10 +166,10 @@ async function main(event) {
                     break;
                 case "OK":
                     
-                    if (!(videoId === event.beforeVideoId && event.status === "live")) {
+                    if (!(videoId === event.beforeVideoId && event.status === "live") && !event.isStreamlink) {
                         const isLive = playerResponse.videoDetails.isLive
                         event["status"] = "live";
-                        tgphoto(coverUrl, `🟡 <b><a href="${url}">${author}</a></b> <code>>></code> ${isLive ? '直播开始！' : 'null！'} <b>${event.isStreamlink ? 'T' : 'F'}</b>\n标题 <code>:</code> <i><a href="${liveVideoUrl}">${title}</a></i>`, null);
+                        tgphoto(coverUrl, `🟡 <b><a href="${url}">${author}</a></b> <code>>></code> ${isLive ? '直播开始！' : 'null！'}\n标题 <code>:</code> <i><a href="${liveVideoUrl}">${title}</a></i>`, null);
                     }
 
                     if (event.isStreamlink) {
@@ -182,7 +190,7 @@ async function main(event) {
                     const assPath = folderPath + '/' + filename + '.ass'
 
                     //下载
-                    await StreamlinkAsync(flvPath, liveChannelUrl, definition, author, xmlPath)
+                    await StreamlinkAsync(coverUrl, liveVideoUrl, title, flvPath, liveChannelUrl, definition, author, xmlPath)
 
                     //排队上传
                     const rcloneEvent = {
@@ -220,6 +228,9 @@ async function main(event) {
             event["beforeVideoId"] = videoId;
 
         } else {
+            if (event.status === "live") {
+                tgmessage(`🔴 <b>${event.name}</b> <code>>></code> ${event.beforeVideoId}直播结束！`, null)
+            };
             event["status"] = null;
             event["beforeScheduledStartTime"] = null;
             event["beforeVideoId"] = null;
@@ -293,10 +304,11 @@ async function main(event) {
     }
 
     //下载
-    async function StreamlinkAsync(Path, url, definition, author, xmlPath) {
+    async function StreamlinkAsync(coverUrl, liveVideoUrl, title, Path, url, definition, author, xmlPath) {
 
         let pid = null;
-        tgmessage(`🟢 <b>${author}</b> <code>>></code> 录制开始！`, 14400)
+        tgphoto(coverUrl, `🟢 <b><a href="https://www.youtube.com/channel/${channelId}">${author}</a></b> <code>>></code> 录制开始！\n标题 <code>:</code> <i><a href="${liveVideoUrl}">${title}</a></i>`, 14400);
+        //tgmessage(`🟢 <b>${author}</b> <code>>></code> 录制开始！`, 14400)
         const videoStartTime = new Date().getTime();
         const result = spawn('streamlink', ['--hls-live-restart', '--loglevel', 'warning', '-o', `${Path}`, `${url}`, definition]);
         pid = result.pid;
@@ -343,9 +355,9 @@ async function main(event) {
                     //console.log(data)
                     //console.log(a)
                     //console.log(b+'_'+a[1]/1000+'_'+a[0])
-                    if (a[0] > 40 && t > 1 + a[1]/1000) {
+                    if (a[0] > 43 && t > 1 + a[1]/1000) {
                         t--;
-                    } else if(a[0] < 40 && t < 180){
+                    } else if(a[0] < 38 && t < 180){
                             t++;
                     }
                     //console.log('辅循环a' + '"' + a[0] + '"')
@@ -369,6 +381,7 @@ async function main(event) {
         async function writeXml(videoId, PageToken, xmlPath) {
             let videoData
             if (!event['liveChatId']) {
+                ydakeyLoadBalanced()
                 await axios.get(`${YDA_URL}videos?part=snippet%2Cstatistics%2CliveStreamingDetails&id=${videoId}&key=${YDA_KEY}`, {
                     headers: { 'Accept': 'application/json' }
                 })
@@ -380,6 +393,7 @@ async function main(event) {
             //console.log(videoData)
             
             let data
+            ydakeyLoadBalanced()
             let url = `${YDA_URL}liveChat/messages?liveChatId=${event.liveChatId}&part=id%2Csnippet%2CauthorDetails${PageToken?'&pageToken='+PageToken:''}&key=${YDA_KEY}`
             //console.log(url)
             await axios.get(url, {
@@ -517,11 +531,13 @@ async function handleBash(rcloneEvent) {
         if (YDA_KEY) {
             let channelData
             let videoData
+            ydakeyLoadBalanced();
             await axios.get(`${YDA_URL}videos?part=snippet%2Cstatistics%2CliveStreamingDetails&id=${videoId}&key=${YDA_KEY}`, {
                     headers: { 'Accept': 'application/json' }
                 })
                 .then(response => { videoData = response.data.items[0] })
                 .catch(error => { console.error(`[${moment().format()}]: ${error}`) });
+            ydakeyLoadBalanced();
             await axios.get(`${YDA_URL}channels?part=snippet%2Cstatistics&id=${videoData.snippet.channelId}&key=${YDA_KEY}`, {
                     headers: { 'Accept': 'application/json' }
                 })
@@ -538,7 +554,7 @@ async function handleBash(rcloneEvent) {
     <genre>Live</genre>
     <genre>${videoData.snippet.defaultAudioLanguage}</genre>
     <genre>${channelData.snippet.customUrl}</genre>
-    <country>${(channelData.snippet.country).toUpperCase()}</country>
+    <country>${(channelData.snippet?.country || '').toUpperCase()}</country>
     <premiered>${moment(videoData.liveStreamingDetails.actualStartTime).format('YYYY-MM-DD')}</premiered>
     <director>${videoData.snippet.channelTitle}</director>
     <writer>${channelData.snippet.title}</writer>
@@ -738,5 +754,11 @@ function escapeXml(unsafe) {
     });
 }
 
+//YouTube Data API负载均衡
+function ydakeyLoadBalanced() {
+    currentkey++;
+    //console.log(currentkey);
+    YDA_KEY = YDA_KEYS[Math.floor(currentkey/500) % YDA_KEYS.length];
+}
 
 export default isMainRunning;
