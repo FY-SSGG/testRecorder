@@ -6,7 +6,7 @@ import fs from 'fs';
 import moment from 'moment-timezone';
 import { spawn } from 'child_process';
 import { promisify } from 'util';
-import { tgmessage, tgphoto } from './index_tgnotice.js';
+import { complexSendMessage } from './index_tgnotice.js';
 
 moment.tz.setDefault('Asia/Shanghai');
 const readFileAsync = promisify(fs.readFile);
@@ -144,7 +144,9 @@ async function main(event) {
             const coverUrl = `https://i.ytimg.com/vi/${videoId}/maxresdefault.jpg`;
 
             if (event.status === "live" && !(videoId === event.beforeVideoId)) {
-                tgmessage(`🔴 <b>${event.name}</b> <code>>></code> ${event.beforeVideoId}直播结束！`, null)
+                let text = `🔴 <b>${event.name}</b> <code>>></code> ${event.beforeVideoId}直播结束！`
+                complexSendMessage(videoId, "end", text, 600, null)
+                //tgmessage(`🔴 <b>${event.name}</b> <code>>></code> ${event.beforeVideoId}直播结束！`, null)
             };
 
             switch (status) {
@@ -159,7 +161,8 @@ async function main(event) {
                         const starttime = moment.unix(scheduledStartTime).format('dddd, MMMM D, h:mm A (Z)')
                         let text = `<b>${author}</b> <code>>></code> 直播预告！ <b>${event.autoRecorder ? 'T' : 'F'}</b>\n时间 <code>:</code> <b>${starttime}</b>\n标题 <code>:</code> <i><a href="${liveChannelUrl}">${title}</a></i>`;
                         
-                        tgphoto(coverUrl, text, timeoutMath[1] + 600);
+                        complexSendMessage(videoId, "plan", text, timeoutMath[1] + 600, coverUrl)
+                        //tgphoto(coverUrl, text, timeoutMath[1] + 600);
                     }
                     timeout = timeoutMath[0];
 
@@ -169,7 +172,9 @@ async function main(event) {
                     if (!(videoId === event.beforeVideoId && event.status === "live") && !event.isStreamlink) {
                         const isLive = playerResponse.videoDetails.isLive
                         event["status"] = "live";
-                        tgphoto(coverUrl, `🟡 <b><a href="${url}">${author}</a></b> <code>>></code> ${isLive ? '直播开始！' : 'null！'}\n标题 <code>:</code> <i><a href="${liveVideoUrl}">${title}</a></i>`, null);
+                        let text = `🟡 <b><a href="${url}">${author}</a></b> <code>>></code> ${isLive ? '直播开始！' : 'null！'}\n标题 <code>:</code> <i><a href="${liveVideoUrl}">${title}</a></i>`
+                        complexSendMessage(videoId, "start", text, null, coverUrl)
+                        //tgphoto(coverUrl, `🟡 <b><a href="${url}">${author}</a></b> <code>>></code> ${isLive ? '直播开始！' : 'null！'}\n标题 <code>:</code> <i><a href="${liveVideoUrl}">${title}</a></i>`, null);
                     }
 
                     if (event.isStreamlink) {
@@ -229,7 +234,9 @@ async function main(event) {
 
         } else {
             if (event.status === "live") {
-                tgmessage(`🔴 <b>${event.name}</b> <code>>></code> ${event.beforeVideoId}直播结束！`, null)
+                let text = `🔴 <b>${event.name}</b> <code>>></code> ${event.beforeVideoId}直播结束！`
+                complexSendMessage(event.beforeVideoId, "end", text, null, null)
+                //tgmessage(`🔴 <b>${event.name}</b> <code>>></code> ${event.beforeVideoId}直播结束！`, null)
             };
             event["status"] = null;
             event["beforeScheduledStartTime"] = null;
@@ -307,7 +314,9 @@ async function main(event) {
     async function StreamlinkAsync(coverUrl, liveVideoUrl, title, Path, url, definition, author, xmlPath) {
 
         let pid = null;
-        tgphoto(coverUrl, `🟢 <b><a href="https://www.youtube.com/channel/${channelId}">${author}</a></b> <code>>></code> 录制开始！\n标题 <code>:</code> <i><a href="${liveVideoUrl}">${title}</a></i>`, 14400);
+        let text = `🟢 <b><a href="https://www.youtube.com/channel/${channelId}">${author}</a></b> <code>>></code> 录制开始！\n标题 <code>:</code> <i><a href="${liveVideoUrl}">${title}</a></i>`
+        complexSendMessage(event.videoId, "start", text, 14400, coverUrl)
+        //tgphoto(coverUrl, `🟢 <b><a href="https://www.youtube.com/channel/${channelId}">${author}</a></b> <code>>></code> 录制开始！\n标题 <code>:</code> <i><a href="${liveVideoUrl}">${title}</a></i>`, 14400);
         //tgmessage(`🟢 <b>${author}</b> <code>>></code> 录制开始！`, 14400)
         const videoStartTime = new Date().getTime();
         const result = spawn('streamlink', ['--hls-live-restart', '--loglevel', 'warning', '-o', `${Path}`, `${url}`, definition]);
@@ -335,7 +344,9 @@ async function main(event) {
             });
         });
         event.pid = null;
-        tgmessage(`🔴 <b>${author}</b> <code>>></code> 录制结束！`, 14400)
+        text = `🔴 <b>${author}</b> <code>>></code> 录制结束！`
+        complexSendMessage(event.videoId, "stop", text, 14400, null)
+        //tgmessage(`🔴 <b>${author}</b> <code>>></code> 录制结束！`, 14400)
 
     }
 
@@ -503,10 +514,14 @@ async function handleBash(rcloneEvent) {
                 //console.log(Number(stdout));
                 let a = definition === 'worst' ? 4 : 6;
                 if (a === Number(stdout)) {
-                    tgmessage(`🎊 <b>${rcloneEvent.name}</b> <code>>></code> 上传成功！`, null);
+                    let text = `🎊 <b>${rcloneEvent.name}</b> <code>>></code> 上传成功！`
+                    complexSendMessage(videoId, "end", text, null, null)
+                    //tgmessage(`🎊 <b>${rcloneEvent.name}</b> <code>>></code> 上传成功！`, null);
                     spawn('rm', ['-rf', `${folderPath}`]).on('close', code => console.log(`[    rm-exit  ]: ${code}`))
                 } else {
-                    tgmessage(`🚧 <b>${rcloneEvent.name}</b> <code>>></code> <b><i><u>上传失败！</u></i></b>`, null);
+                    let text = `🚧 <b>${rcloneEvent.name}</b> <code>>></code> <b><i><u>上传失败！</u></i></b>`
+                    complexSendMessage(videoId, "end", text, null, null)
+                    //tgmessage(`🚧 <b>${rcloneEvent.name}</b> <code>>></code> <b><i><u>上传失败！</u></i></b>`, null);
                 };
             });
 
