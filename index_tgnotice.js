@@ -16,31 +16,59 @@ const chatIds = CHAT_IDS.split(',');
 
 const a={};
 
-async function complexSendMessage(videoid,type,text,timeout,photoUrl) {
+/**
+ * 发送带图片信息
+ * @param videoid 视频id
+ * @param type 状态plan/livestart/liveend/recorderstart/recorderend/rclone
+ * @param text 需要发送的消息
+ * @param timeout null或者延迟 单位:s
+ * @param photoUrl 图片Url
+ */
+async function complexSendMessage(videoid, type, text, timeout, photoUrl) {
     await Promise.all(chatIds.map(async (chatId) => {
         a[chatId] = a?.[chatId] ?? {};
         a[chatId][videoid] = a[chatId]?.[videoid] ?? {};
-      
+
+        const { plan, livestart, liveend, recorderstart, recorderend, rclone} = a[chatId]?.[videoid] ?? {};
+
         try {
             if (a[chatId][videoid][type]) {
                 await bot.deleteMessage(chatId, `${a[chatId][videoid][type]}`);
             }
-        
-            const messageId = photoUrl 
-            ? await tgphoto(chatId, photoUrl, text, timeout) 
-            : await tgmessage(chatId, text, timeout);
-        
-            a[chatId][videoid][type] = messageId;
-        
-            if (type === "end") {
-                const { start, stop } = a[chatId]?.[videoid] ?? {};
-                if (start) await bot.deleteMessage(chatId, `${start}`);
-                if (stop) await bot.deleteMessage(chatId, `${stop}`);
-                delete a[chatId]?.[videoid];
-              }
+
+            switch (type) {
+                case "plan":
+                    timeout = timeout + 600;
+                    
+                    break;
+                case "livestart":
+                    if (plan) delete a[chatId][videoid]["plan"]; 
+                    break;
+                case "recorderstart":
+                    if (plan) delete a[chatId][videoid]["plan"]; 
+                    if (livestart) await bot.deleteMessage(chatId, `${livestart}`) && delete a[chatId][videoid]["livestart"];
+                    break;
+                case "recorderend":
+                    if (recorderstart) await bot.deleteMessage(chatId, `${recorderstart}`) && delete a[chatId][videoid]["recorderstart"];
+                    break;
+                case "liveend":
+                    if (rclone) await bot.deleteMessage(chatId, `${rclone}`) && delete a[chatId][videoid]["rclone"];
+                    if (livestart) await bot.deleteMessage(chatId, `${livestart}`) && delete a[chatId][videoid]["livestart"];
+                    break;
+                case "rclone":
+                    if (recorderend) await bot.deleteMessage(chatId, `${recorderend}`) && delete a[chatId][videoid]["recorderend"];
+                    
+                    break;
+                default:
+                    break;
+            }
+            a[chatId][videoid][type] = photoUrl ? await tgphoto(chatId, photoUrl, text, timeout) : await tgmessage(chatId, text, timeout);
         } catch (error) {
-          console.error('TG_Error:', error);
+          console.error('TG_Error:', error.message);
         }
+
+        if((rclone && !livestart) || liveend) delete a[chatId]?.[videoid];
+
       }));
 }
 
@@ -91,7 +119,7 @@ const deleteMessage = (msg, times) => {
         try {
             await bot.deleteMessage(msg.chat.id, `${msg.message_id}`)
         } catch (error) {
-            console.log(error.message);
+            console.error(error.message);
         }
     }, times * 1000)
 }

@@ -132,6 +132,8 @@ async function main(event) {
             const videoId = playerResponse.videoDetails.videoId
             const author = playerResponse.videoDetails.author
             const status = playerResponse.playabilityStatus.status
+            const values = playerResponse.videoDetails.thumbnail.thumbnails
+            const coverUrl = values[values.length - 1].url;
 
             event.name = author;
             event.videoId =videoId;
@@ -141,12 +143,9 @@ async function main(event) {
             const url = `https://www.youtube.com/channel/${channelId}`;
             const liveChannelUrl = `https://www.youtube.com/channel/${channelId}/live`;
             const liveVideoUrl = `https://www.youtube.com/watch?v=${videoId}`;
-            const coverUrl = `https://i.ytimg.com/vi/${videoId}/maxresdefault.jpg`;
 
             if (event.status === "live" && !(videoId === event.beforeVideoId)) {
-                let text = `🔴 <b>${event.name}</b> <code>>></code> ${event.beforeVideoId}直播结束！`
-                complexSendMessage(videoId, "end", text, 600, null)
-                //tgmessage(`🔴 <b>${event.name}</b> <code>>></code> ${event.beforeVideoId}直播结束！`, null)
+                tgnotice(event.beforeVideoId,"liveend",null,null,null)
             };
 
             switch (status) {
@@ -158,11 +157,10 @@ async function main(event) {
                     if (!(timeoutMath[0] === timeoutDefault) && (!(videoId === event.beforeVideoId) || !(scheduledStartTime === event.beforeScheduledStartTime))) {
                         event["beforeScheduledStartTime"] = scheduledStartTime;
                         
-                        const starttime = moment.unix(scheduledStartTime).format('dddd, MMMM D, h:mm A (Z)')
+                        const starttime = moment.unix(scheduledStartTime).format('(z) dddd, MMMM D, HH:mm')
                         let text = `<b>${author}</b> <code>>></code> 直播预告！ <b>${event.autoRecorder ? 'T' : 'F'}</b>\n时间 <code>:</code> <b>${starttime}</b>\n标题 <code>:</code> <i><a href="${liveChannelUrl}">${title}</a></i>`;
                         
-                        complexSendMessage(videoId, "plan", text, timeoutMath[1] + 600, coverUrl)
-                        //tgphoto(coverUrl, text, timeoutMath[1] + 600);
+                        tgnotice(videoId, "plan", text, timeoutMath[1], coverUrl)
                     }
                     timeout = timeoutMath[0];
 
@@ -173,8 +171,8 @@ async function main(event) {
                         const isLive = playerResponse.videoDetails.isLive
                         event["status"] = "live";
                         let text = `🟡 <b><a href="${url}">${author}</a></b> <code>>></code> ${isLive ? '直播开始！' : 'null！'}\n标题 <code>:</code> <i><a href="${liveVideoUrl}">${title}</a></i>`
-                        complexSendMessage(videoId, "start", text, null, coverUrl)
-                        //tgphoto(coverUrl, `🟡 <b><a href="${url}">${author}</a></b> <code>>></code> ${isLive ? '直播开始！' : 'null！'}\n标题 <code>:</code> <i><a href="${liveVideoUrl}">${title}</a></i>`, null);
+
+                        tgnotice(videoId, "livestart", text, null, null)
                     }
 
                     if (event.isStreamlink) {
@@ -234,9 +232,7 @@ async function main(event) {
 
         } else {
             if (event.status === "live") {
-                let text = `🔴 <b>${event.name}</b> <code>>></code> ${event.beforeVideoId}直播结束！`
-                complexSendMessage(event.beforeVideoId, "end", text, null, null)
-                //tgmessage(`🔴 <b>${event.name}</b> <code>>></code> ${event.beforeVideoId}直播结束！`, null)
+                tgnotice(event.beforeVideoId, "liveend", null, null, null)
             };
             event["status"] = null;
             event["beforeScheduledStartTime"] = null;
@@ -315,9 +311,8 @@ async function main(event) {
 
         let pid = null;
         let text = `🟢 <b><a href="https://www.youtube.com/channel/${channelId}">${author}</a></b> <code>>></code> 录制开始！\n标题 <code>:</code> <i><a href="${liveVideoUrl}">${title}</a></i>`
-        complexSendMessage(event.videoId, "start", text, 14400, coverUrl)
-        //tgphoto(coverUrl, `🟢 <b><a href="https://www.youtube.com/channel/${channelId}">${author}</a></b> <code>>></code> 录制开始！\n标题 <code>:</code> <i><a href="${liveVideoUrl}">${title}</a></i>`, 14400);
-        //tgmessage(`🟢 <b>${author}</b> <code>>></code> 录制开始！`, 14400)
+        tgnotice(event.videoId, "recorderstart", text, null, null);
+        
         const videoStartTime = new Date().getTime();
         const result = spawn('streamlink', ['--hls-live-restart', '--loglevel', 'warning', '-o', `${Path}`, `${url}`, definition]);
         pid = result.pid;
@@ -345,15 +340,13 @@ async function main(event) {
         });
         event.pid = null;
         text = `🔴 <b>${author}</b> <code>>></code> 录制结束！`
-        complexSendMessage(event.videoId, "stop", text, 14400, null)
-        //tgmessage(`🔴 <b>${author}</b> <code>>></code> 录制结束！`, 14400)
-
+        tgnotice(event.videoId, "recorderend", text, null, null)
     }
 
     //获取弹幕
     async function getChatMessages(videoId, videoStartTime, xmlPath) {
         let b = 0;
-        let t = event.t ?? 40;
+        let t = event.t ?? 30;
         const processedMessageIds = new Set();
         let nextPageToken = null;
         let interval = setInterval(async () => {
@@ -391,6 +384,8 @@ async function main(event) {
     
         async function writeXml(videoId, PageToken, xmlPath) {
             let videoData
+
+            //获取chatid
             if (!event['liveChatId']) {
                 ydakeyLoadBalanced()
                 await axios.get(`${YDA_URL}videos?part=snippet%2Cstatistics%2CliveStreamingDetails&id=${videoId}&key=${YDA_KEY}`, {
@@ -456,6 +451,7 @@ async function main(event) {
         }
         runExchange(exchangeEvent)
     }
+
 }
 
 //处理上传相关事件
@@ -514,14 +510,12 @@ async function handleBash(rcloneEvent) {
                 //console.log(Number(stdout));
                 let a = definition === 'worst' ? 4 : 6;
                 if (a === Number(stdout)) {
-                    let text = `🎊 <b>${rcloneEvent.name}</b> <code>>></code> 上传成功！`
-                    complexSendMessage(videoId, "end", text, null, null)
-                    //tgmessage(`🎊 <b>${rcloneEvent.name}</b> <code>>></code> 上传成功！`, null);
+
+                    tgnotice(videoId, "rclonetrue", null, null, coverUrl)
+
                     spawn('rm', ['-rf', `${folderPath}`]).on('close', code => console.log(`[    rm-exit  ]: ${code}`))
                 } else {
-                    let text = `🚧 <b>${rcloneEvent.name}</b> <code>>></code> <b><i><u>上传失败！</u></i></b>`
-                    complexSendMessage(videoId, "end", text, null, null)
-                    //tgmessage(`🚧 <b>${rcloneEvent.name}</b> <code>>></code> <b><i><u>上传失败！</u></i></b>`, null);
+                    tgnotice(videoId, "rclonefalse", null, null, coverUrl)
                 };
             });
 
@@ -543,6 +537,7 @@ async function handleBash(rcloneEvent) {
     async function WriteNfo(videoId, metadata, nfoPath) {
         let nfoContent;
         let coverUrl;
+        
         if (YDA_KEY) {
             let channelData
             let videoData
@@ -559,36 +554,38 @@ async function handleBash(rcloneEvent) {
                 .then(response => { channelData = response.data.items[0] })
                 .catch(error => { console.error(`[${moment().format()}]: ${error}`) });
 
+            coverUrl = Object.values(videoData.snippet.thumbnails)[Object.values(videoData.snippet.thumbnails).length - 1].url;
+            let thumbUrl = Object.values(channelData.snippet.thumbnails)[Object.values(channelData.snippet.thumbnails).length - 1].url; 
             nfoContent = `<?xml version="1.0" encoding="UTF-8"?>
 <movie>
-    <title>${escapeXml(videoData.snippet.title)}</title>
-    <userrating>${videoData.statistics.viewCount?(10*videoData.statistics.likeCount/videoData.statistics.viewCount).toFixed(2):''}</userrating>
-    <plot>${escapeXml(videoData.snippet.description)}</plot>
-    <description>${escapeXml(channelData.snippet.description)}</description>
+    <title>${escapeXml(videoData.snippet?.title)}</title>
+    <userrating>${videoData.statistics?.viewCount ? ( 10 * videoData.statistics.likeCount / videoData.statistics.viewCount ).toFixed(2) : ''}</userrating>
+    <plot>${escapeXml(videoData.snippet?.description)}</plot>
+    <description>${escapeXml(channelData.snippet?.description)}</description>
     <mpaa>PG</mpaa>
     <genre>Live</genre>
-    <genre>${videoData.snippet.defaultAudioLanguage}</genre>
-    <genre>${channelData.snippet.customUrl}</genre>
+    <genre>${videoData.snippet?.defaultAudioLanguage}</genre>
+    <genre>${channelData.snippet?.customUrl}</genre>
     <country>${(channelData.snippet?.country || '').toUpperCase()}</country>
-    <premiered>${moment(videoData.liveStreamingDetails.actualStartTime).format('YYYY-MM-DD')}</premiered>
-    <director>${videoData.snippet.channelTitle}</director>
-    <writer>${channelData.snippet.title}</writer>
+    <premiered>${moment(videoData.liveStreamingDetails?.actualStartTime).format('YYYY-MM-DD')}</premiered>
+    <director>${escapeXml(videoData.snippet?.channelTitle)}</director>
+    <writer>${escapeXml(channelData.snippet?.title)}</writer>
     <actor>
-        <name>${escapeXml(videoData.snippet.channelTitle)}</name>
+        <name>${escapeXml(videoData.snippet?.channelTitle)}</name>
         <type>Actor</type>
-        <thumb>${channelData.snippet.thumbnails.high.url}</thumb>
+        <thumb>${thumbUrl}</thumb>
     </actor>
-    <viewCount>${videoData.statistics.viewCount}</viewCount>
-    <likeCount>${videoData.statistics.likeCount}</likeCount>
-    <scheduledStartTime>${videoData.liveStreamingDetails.scheduledStartTime}</scheduledStartTime>
-    <actualStartTime>${videoData.liveStreamingDetails.actualStartTime}</actualStartTime>
-    <actualEndTime>${videoData.liveStreamingDetails.actualEndTime}</actualEndTime>
-    <subscriberCount>${channelData.statistics.subscriberCount}</subscriberCount>
-    <thumb>${videoData.snippet.thumbnails.maxres.url}</thumb>
+    <viewCount>${videoData.statistics?.viewCount}</viewCount>
+    <likeCount>${videoData.statistics?.likeCount}</likeCount>
+    <scheduledStartTime>${videoData.liveStreamingDetails?.scheduledStartTime}</scheduledStartTime>
+    <actualStartTime>${videoData.liveStreamingDetails?.actualStartTime}</actualStartTime>
+    <actualEndTime>${videoData.liveStreamingDetails?.actualEndTime}</actualEndTime>
+    <subscriberCount>${channelData.statistics?.subscriberCount}</subscriberCount>
+    <thumb>${coverUrl}</thumb>
     <website>https://www.youtube.com/watch?v=${videoId}</website>
 </movie>`;
 
-            coverUrl = videoData.snippet.thumbnails.maxres.url;
+            
         } else {
             nfoContent = `<?xml version="1.0" encoding="UTF-8" standalone="yes" ?>
 <movie>
@@ -774,6 +771,44 @@ function ydakeyLoadBalanced() {
     currentkey++;
     //console.log(currentkey);
     YDA_KEY = YDA_KEYS[Math.floor(currentkey/500) % YDA_KEYS.length];
+}
+
+/**
+ * tg通知前置处理
+ * @param videoid 视频id
+ * @param key 状态plan/livestart/liveend/recorderstart/recorderend/rclonetrue/rclonefalse
+ * @param text 需要发送的消息
+ * @param timeout null或者延迟 单位:s
+ * @param coverUrl 图片Url
+ */
+async function tgnotice(videoId, key, text, timeout, coverUrl) {
+    switch (key) {
+        case "liveend":
+        case "rclonetrue":
+        case "rclonefalse":
+            ydakeyLoadBalanced()
+            await axios.get(`${YDA_URL}videos?part=snippet%2CliveStreamingDetails&id=${videoId}&key=${YDA_KEY}`, {
+                headers: { 'Accept': 'application/json' }
+            })
+            .then(response => { 
+                const a = response.data.items[0]
+                const values = Object.values(a.snippet.thumbnails)
+
+                coverUrl ||= values[values.length - 1].url;
+
+                if (key === "liveend") text = `🔴 <b><a href="https://www.youtube.com/channel/${a.snippet.channelId}">${a.snippet.channelTitle}</a></b> <code>>></code> 直播结束！\n标题 <code>:</code> <i><a href="https://www.youtube.com/watch?v=${videoId}">${a.snippet.title}</a></i>\n时间 <code>:</code> <b>${moment(a.liveStreamingDetails.actualStartTime).format('(z)[YYYY/MM/DD] HH:mm:ss')} --> ${moment(a.liveStreamingDetails.actualEndTime).format('HH:mm:ss')}</b>`;
+                if (key === "rclonetrue") text = `🎊 <b><a href="https://www.youtube.com/channel/${a.snippet.channelId}">${a.snippet.channelTitle}</a></b> <code>>></code> 上传成功！\n标题 <code>:</code> <i><a href="https://www.youtube.com/watch?v=${videoId}">${a.snippet.title}</a></i>\n时间 <code>:</code> <b>${moment(a.liveStreamingDetails.actualStartTime).format('(z)[YYYY/MM/DD] HH:mm:ss')} --> ${a.liveStreamingDetails?.actualEndTime ? moment(a.liveStreamingDetails.actualEndTime).format('HH:mm:ss') : moment().format('HH:mm:ss -->')}</b>`;
+                if (key === "rclonefalse") text = `🚧 <b><a href="https://www.youtube.com/channel/${a.snippet.channelId}">${a.snippet.channelTitle}</a></b> <code>>></code> 上传失败！\n标题 <code>:</code> <i><a href="https://www.youtube.com/watch?v=${videoId}">${a.snippet.title}</a></i>\n时间 <code>:</code> <b>${moment(a.liveStreamingDetails.actualStartTime).format('(z)[YYYY/MM/DD] HH:mm:ss')} --> ${a.liveStreamingDetails?.actualEndTime ? moment(a.liveStreamingDetails.actualEndTime).format('HH:mm:ss') : moment().format('HH:mm:ss -->')}</b>`;
+                
+                if (key === "rclonefalse"||key === "rclonetrue") key = "rclone";
+            })
+            .catch(error => { console.error(`[${moment().format()}](tgnotice): ${error}`) });
+            break;
+        default:
+            break;
+    }
+    complexSendMessage(videoId, key, text, timeout, coverUrl)
+
 }
 
 export default isMainRunning;
