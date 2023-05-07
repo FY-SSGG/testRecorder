@@ -19,12 +19,12 @@ const a={};
 /**
  * 发送带图片信息
  * @param videoid 视频id
- * @param type 状态plan/livestart/liveend/recorderstart/recorderend/rclone
+ * @param key 状态plan/livestart/liveend/recorderstart/recorderend/rclone
  * @param text 需要发送的消息
  * @param timeout null或者延迟 单位:s
  * @param photoUrl 图片Url
  */
-async function complexSendMessage(videoid, type, text, timeout, photoUrl) {
+async function complexSendMessage(videoid, key, text, timeout, photoUrl) {
     await Promise.all(chatIds.map(async (chatId) => {
         a[chatId] = a?.[chatId] ?? {};
         a[chatId][videoid] = a[chatId]?.[videoid] ?? {};
@@ -32,11 +32,11 @@ async function complexSendMessage(videoid, type, text, timeout, photoUrl) {
         const { plan, livestart, liveend, recorderstart, recorderend, rclone} = a[chatId]?.[videoid] ?? {};
 
         try {
-            if (a[chatId][videoid][type]) {
-                await bot.deleteMessage(chatId, `${a[chatId][videoid][type]}`);
+            if (a[chatId][videoid][key]) {
+                await bot.deleteMessage(chatId, `${a[chatId][videoid][key]}`);
             }
 
-            switch (type) {
+            switch (key) {
                 case "plan":
                     timeout = timeout + 600;
                     
@@ -62,7 +62,7 @@ async function complexSendMessage(videoid, type, text, timeout, photoUrl) {
                 default:
                     break;
             }
-            a[chatId][videoid][type] = photoUrl ? await tgphoto(chatId, photoUrl, text, timeout) : await tgmessage(chatId, text, timeout);
+            a[chatId][videoid][key] = photoUrl ? await tgphoto(chatId, photoUrl, text, timeout) : await tgmessage(chatId, text, timeout);
         } catch (error) {
           console.error('TG_Error:', error.message);
         }

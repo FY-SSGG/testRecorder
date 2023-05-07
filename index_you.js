@@ -27,7 +27,7 @@ const configLog = CONFIG + '/config.json';
 const runningLog = CONFIG + '/running.json';
 const logFile = CONFIG + '/log.json';
 
-// 队列，用于存储后处理事件
+// 队列，用于录制完成后的文件处理事件
 let isRcloneRunning = false;
 const queue = [];
 
@@ -64,7 +64,6 @@ async function main(event) {
     const channelName = event.channelName;
     const definition = event.definition;
     //const autoRecorder = event.autoRecorder;
-    let thumbUrl = null
 
     const match = await getHttps(channelId);
     let timeout = await isLivingAsync(match);
@@ -92,7 +91,11 @@ async function main(event) {
     }, timeout * 1000);
 
 
-    //获取https数据
+    /**
+     * 通过https获取对应频道直播页面源码
+     * 返回值为直播间对应的源码
+     * @param channelId 频道id
+     */
     function getHttps(channelId) {
         return new Promise((resolve, reject) => {
             const liveUrl = `https://www.youtube.com/channel/${channelId}/live`;
@@ -104,11 +107,6 @@ async function main(event) {
 
                 response.on('end', () => {
                     const regex = /ytInitialPlayerResponse\s*=\s*({.*});/;
-                    const regexImage = /videoOwnerRenderer.*?":"(https[^="]+)/;
-
-                    const imageMatch = data.match(regexImage);
-                    thumbUrl = imageMatch ? imageMatch[1] : '';
-
                     const match = data.match(regex);
                     resolve(match)
                 });
@@ -119,7 +117,19 @@ async function main(event) {
         })
     }
 
-    //判断是否开播,返回循环时间
+    /**
+     * 通多https数据判断直播间状态
+     * 函数返回值为循环获取https数据的周期
+     * 
+     * 状态包含无信息、待机、直播中以及未知状态
+     * 函数中设置了默认循环获取https数据周期为2700.5秒
+     * 设置为小数是为了判断默认值未改变，所有更改的时间皆为整数
+     * 当状态为待机时，将视时间调整周期用于防止过多的发送https请求
+     * 当状态为直播时，将周期设置为5秒用以防止主播网络波动造成断流
+     * 其他情况不对周期进行更改
+     * 返回值时会判断周期大于等于默认值时会将其乘以一个1以内的随机值
+     * 小于默认值时不做改变
+     */
     async function isLivingAsync(match) {
         //默认循环的时间，！要是小数，用来排除超长待机的通知
         const timeoutDefault = 2700.5;
@@ -128,11 +138,12 @@ async function main(event) {
         if (match && match[1]) {
             const playerResponse = JSON.parse(match[1]);
             //console.log(playerResponse);
-            const title = playerResponse.videoDetails.title
-            const videoId = playerResponse.videoDetails.videoId
-            const author = playerResponse.videoDetails.author
-            const status = playerResponse.playabilityStatus.status
-            const values = playerResponse.videoDetails.thumbnail.thumbnails
+            const title = playerResponse.videoDetails.title;
+            const videoId = playerResponse.videoDetails.videoId;
+            const author = playerResponse.videoDetails.author;
+            const status = playerResponse.playabilityStatus.status;
+
+            const values = playerResponse.videoDetails.thumbnail.thumbnails;
             const coverUrl = values[values.length - 1].url;
 
             event.name = author;
@@ -157,9 +168,8 @@ async function main(event) {
                     if (!(timeoutMath[0] === timeoutDefault) && (!(videoId === event.beforeVideoId) || !(scheduledStartTime === event.beforeScheduledStartTime))) {
                         event["beforeScheduledStartTime"] = scheduledStartTime;
                         
-                        const starttime = moment.unix(scheduledStartTime).format('(z) dddd, MMMM D, HH:mm')
-                        let text = `<b>${author}</b> <code>>></code> 直播预告！ <b>${event.autoRecorder ? 'T' : 'F'}</b>\n时间 <code>:</code> <b>${starttime}</b>\n标题 <code>:</code> <i><a href="${liveChannelUrl}">${title}</a></i>`;
-                        
+                        const starttime = moment.unix(scheduledStartTime).format('(z) dddd, MMMM D, h:mm A');
+                        let text = `<tg-spoiler>~—~—~—</tg-spoiler><b>LIVE-MESSAGE</b><tg-spoiler>—~—~—~</tg-spoiler>\n<b>${author}</b> <code>>></code> 直播预告！ <b>${event.autoRecorder ? 'T' : 'F'}</b>\n时间 <code>:</code> <b>${starttime}</b>\n标题 <code>:</code> <i><a href="${liveChannelUrl}">${title}</a></i>`;
                         tgnotice(videoId, "plan", text, timeoutMath[1], coverUrl)
                     }
                     timeout = timeoutMath[0];
@@ -170,8 +180,8 @@ async function main(event) {
                     if (!(videoId === event.beforeVideoId && event.status === "live") && !event.isStreamlink) {
                         const isLive = playerResponse.videoDetails.isLive
                         event["status"] = "live";
-                        let text = `🟡 <b><a href="${url}">${author}</a></b> <code>>></code> ${isLive ? '直播开始！' : 'null！'}\n标题 <code>:</code> <i><a href="${liveVideoUrl}">${title}</a></i>`
 
+                        let text = `🟡 <b><a href="${url}">${author}</a></b> <code>>></code> ${isLive ? '直播开始！' : 'null！'}\n标题 <code>:</code> <i><a href="${liveVideoUrl}">${title}</a></i>`
                         tgnotice(videoId, "livestart", text, null, null)
                     }
 
@@ -207,12 +217,7 @@ async function main(event) {
                         assPath: assPath,
                         definition: definition,
                         videoId: videoId,
-                        title: title,
-                        plot: `${author}-${timeId}`,
-                        year: timeId.substring(0, 4),
-                        name: channelName,
-                        thumb: thumbUrl,
-                        cover: coverUrl
+                        coverUrl:coverUrl
                     }
                     runbash(rcloneEvent)
 
@@ -268,7 +273,19 @@ async function main(event) {
         return definition;
     }
 
-    //待机状态下循环周期判断
+    /**
+     * 待机状态下循环周期判断
+     * @param scheduledStartTime 预计开播时间
+     * @param timeout 循环周期
+     * @returns {[number,number]}
+     * @retval [ 循环周期, 剩余开播时间 ]
+     * @retval timeout = [48h - 10min,)：timeout
+     * [24h,48h - 10min)：剩余开播时间/3
+     * [1h,24h)：剩余开播时间/2
+     * (0,1h)：剩余开播时间
+     * [-3h,0]：60
+     * (,-3h)：timeout
+     */
     function timeMath(scheduledStartTime, timeout) {
 
         let timeunix = moment().valueOf();
@@ -280,28 +297,20 @@ async function main(event) {
         //console.log(`dunix-${differenceInSeconds}`)
 
         if (differenceInSeconds >= 172800 - 600) {
-            //[48h - 10min,) time
             return [timeout,differenceInSeconds];
         } else if (differenceInSeconds >= 86400 && differenceInSeconds < 172800 - 600) {
-            //[24h,48h - 10min) time/3
             timeout = differenceInSeconds / 3;
             return [Math.ceil(timeout),differenceInSeconds];
         } else if (differenceInSeconds >= 3600 && differenceInSeconds < 86400) {
-            //[1h,24h) time/2
             timeout = differenceInSeconds / 2;
             return [Math.ceil(timeout),differenceInSeconds];
         } else if (differenceInSeconds > 0 && differenceInSeconds < 3600) {
-            //(0,1h) time
             timeout = differenceInSeconds;
             return [timeout,differenceInSeconds];
         } else if (differenceInSeconds >= -10800 && differenceInSeconds <= 0) {
-            //[-3h,0] 60
-            //console.log(`dunix-${differenceInSeconds}`)
             timeout = 60;
             return [timeout,differenceInSeconds];
         } else {
-            //console.log(`dunix-${differenceInSeconds}`)
-            //(,-3h) time
             return [timeout,differenceInSeconds];
         }
     }
@@ -348,31 +357,31 @@ async function main(event) {
         let b = 0;
         let t = event.t ?? 30;
         const processedMessageIds = new Set();
-        let nextPageToken = null;
+        //let nextPageToken = null;
+
+        let [msgCount, elapsed, PageToken] = [0, 0, null];
         let interval = setInterval(async () => {
             //console.log('主循环b' + '"' + b + '"')
-            let a = [0,0];
+            //console.log('时间回调t' + '"' + t + '"')
+            //b每秒一跳，b=0或b>t时b=0,这是一个负反馈动态调节调用api的周期
+            //setInterval的优势是不会因为函数运行暂停循环，他会按时间定时重复调用函数
             if (event.pid) {
                 //console.log('继续循环');
                 if ( b === 0 || b >= t) {
-                    a = await writeXml(videoId, nextPageToken, xmlPath)
-                    //console.log(data)
-                    //console.log(a)
-                    //console.log(b+'_'+a[1]/1000+'_'+a[0])
-                    if (a[0] > 43 && t > 1 + a[1]/1000) {
+                    [msgCount, elapsed, PageToken] = await writeXml(videoId, PageToken, xmlPath)
+                    //console.log(b + '_' + elapsed / 1000 + '_' + msgCount )
+                    if (msgCount > 43 && t > 1 + elapsed/1000) {
                         t--;
-                    } else if(a[0] < 38 && t < 180){
+                    } else if(msgCount < 38 && t < 180){
                             t++;
                     }
-                    //console.log('辅循环a' + '"' + a[0] + '"')
-                    //console.log('时间回调t' + '"' + t + '"')
                     b = 0;
                 }
                 b++;
             } else {
                 
-                if (b > a[1]/1000) {
-                    writeXml(videoId, nextPageToken, xmlPath)
+                if (b > elapsed/1000) {
+                    writeXml(videoId, PageToken, xmlPath)
                     event['t'] = t;
                 }
                 clearInterval(interval);
@@ -381,36 +390,30 @@ async function main(event) {
             }
             
           }, 1000);
-    
+
+        /**
+         * 写弹幕源文件
+         * @param videoId 视频id
+         * @param PageToken 获取这次评论的PageToken
+         * @param xmlPath 弹幕源文件路径
+         * @returns {Promise<[number,number,any]>}
+         * @retval [ 新增信息数, 最小请求周期, 下一次评论的PageToken ]
+         */
         async function writeXml(videoId, PageToken, xmlPath) {
-            let videoData
 
             //获取chatid
             if (!event['liveChatId']) {
-                ydakeyLoadBalanced()
-                await axios.get(`${YDA_URL}videos?part=snippet%2Cstatistics%2CliveStreamingDetails&id=${videoId}&key=${YDA_KEY}`, {
-                    headers: { 'Accept': 'application/json' }
-                })
-                .then(response => { videoData = response.data.items[0] })
-                .catch(error => { console.error(`[${moment().format()}]: ${error}`) });
+                let videoData = await axiosGet("videos", videoId)
                 event['liveChatId'] = videoData.liveStreamingDetails.activeLiveChatId
             }
-            
-            //console.log(videoData)
-            
-            let data
-            ydakeyLoadBalanced()
-            let url = `${YDA_URL}liveChat/messages?liveChatId=${event.liveChatId}&part=id%2Csnippet%2CauthorDetails${PageToken?'&pageToken='+PageToken:''}&key=${YDA_KEY}`
-            //console.log(url)
-            await axios.get(url, {
-                headers: { 'Accept': 'application/json' }
-            })
-            .then(response => { data = response.data })
-            .catch(error => { console.error(`[${moment().format()}]: ${error}`) });
+        
+            let messagesData = await axiosGet("messages", videoId, null, event.liveChatId, PageToken)
+
             let a = 0;
-            if (data) {
-                const messages = data.items;
-                nextPageToken = data?.nextPageToken ?? null;
+            let nextPageToken = null;
+            if (messagesData) {
+                const messages = messagesData.items;
+                nextPageToken = messagesData?.nextPageToken ?? null;
                 for (const message of messages) {
                     // 如果这条消息的ID已经被处理过了，就跳过
                     if (processedMessageIds.has(message.id)) {
@@ -423,7 +426,6 @@ async function main(event) {
                     let text = `<d p="${diffmessageTime/1000},${message.authorDetails.isChatOwner ? '5' : '1'},25,${colors},${chatMessageTime},0,${message.authorDetails.channelId},0" user="${message.authorDetails.displayName}">${escapeXml(message.snippet.displayMessage.replace(/:([^:]+):/g, '[$1]'))}</d>\n`
                     fs.appendFile(xmlPath, text , (err) => {
                         if (err) throw err;
-                        // 这里可以将聊天消息保存到数据库、文件等
                         //console.log(`保存消息：${message.snippet.displayMessage}`);
                         });
     
@@ -432,8 +434,7 @@ async function main(event) {
                 }
                 
             }
-            //返回新增信息数、最小请求周期
-            return [ a , data?.pollingIntervalMillis ?? 10000]
+            return [ a , messagesData?.pollingIntervalMillis ?? 10000 , nextPageToken]
         }
     }
 
@@ -479,18 +480,9 @@ async function handleBash(rcloneEvent) {
     const assPath = rcloneEvent.assPath;
     const videoId = rcloneEvent.videoId;
     const definition = rcloneEvent.definition;
-
-    // 设置要写入 NFO 文件的元数据
-    const metadata = {
-        title: rcloneEvent.title,
-        plot: rcloneEvent.plot,
-        year: rcloneEvent.year,
-        name: rcloneEvent.name,
-        thumb: rcloneEvent.thumb,
-        cover: rcloneEvent.cover,
-    };
+    let coverUrl = rcloneEvent.coverUrl;
     
-    const coverUrl = await WriteNfo(videoId, metadata, nfoPath);
+    coverUrl = await WriteNfo(videoId, coverUrl, nfoPath);
 
     const danmucl = spawn(DANMUFC, ["-o", "ass", `${assPath}`, "-i", "xml", `${xmlPath}`, "-b", "REPEAT", "--ignore-warnings"]);
     danmucl.on("close", code=> console.log(`[danmucl-exit ]: ${code}`));
@@ -534,25 +526,14 @@ async function handleBash(rcloneEvent) {
         });
 
     //写nfo
-    async function WriteNfo(videoId, metadata, nfoPath) {
+    async function WriteNfo(videoId, coverUrl, nfoPath) {
         let nfoContent;
-        let coverUrl;
         
         if (YDA_KEY) {
             let channelData
             let videoData
-            ydakeyLoadBalanced();
-            await axios.get(`${YDA_URL}videos?part=snippet%2Cstatistics%2CliveStreamingDetails&id=${videoId}&key=${YDA_KEY}`, {
-                    headers: { 'Accept': 'application/json' }
-                })
-                .then(response => { videoData = response.data.items[0] })
-                .catch(error => { console.error(`[${moment().format()}]: ${error}`) });
-            ydakeyLoadBalanced();
-            await axios.get(`${YDA_URL}channels?part=snippet%2Cstatistics&id=${videoData.snippet.channelId}&key=${YDA_KEY}`, {
-                    headers: { 'Accept': 'application/json' }
-                })
-                .then(response => { channelData = response.data.items[0] })
-                .catch(error => { console.error(`[${moment().format()}]: ${error}`) });
+            videoData = await axiosGet("videos", videoId);
+            channelData = await axiosGet("channels", videoId, videoData.snippet.channelId);
 
             coverUrl = Object.values(videoData.snippet.thumbnails)[Object.values(videoData.snippet.thumbnails).length - 1].url;
             let thumbUrl = Object.values(channelData.snippet.thumbnails)[Object.values(channelData.snippet.thumbnails).length - 1].url; 
@@ -584,25 +565,7 @@ async function handleBash(rcloneEvent) {
     <thumb>${coverUrl}</thumb>
     <website>https://www.youtube.com/watch?v=${videoId}</website>
 </movie>`;
-
             
-        } else {
-            nfoContent = `<?xml version="1.0" encoding="UTF-8" standalone="yes" ?>
-<movie>
-    <title>${metadata.title}</title>
-    <plot>${metadata.plot}</plot>
-    <year>${metadata.year}</year>
-    <genre>Live</genre>
-    <actor>
-        <name>${metadata.name}</name>
-        <type>Actor</type>
-        <thumb>${metadata.thumb}</thumb>
-    </actor>
-    <cover>${metadata.cover}</cover>
-    <website>https://www.youtube.com/watch?v=${videoId}</website>
-</movie>`;
-
-            coverUrl = metadata.cover;
         }
 
         fs.writeFile(`${nfoPath}`, nfoContent, function(err) {
@@ -676,14 +639,6 @@ async function handleBash(rcloneEvent) {
     
 }
 
-//写日志
-function Log(content) {
-    fs.appendFile(logFile, JSON.stringify(content, null, 2) + '\n', (err) => {
-        if (err) throw err;
-        console.log('The match was appended to log.txt!');
-    });
-}
-
 //处理写出相关事件
 function runExchange(exchangeEvent) {
     if (isExchange) {
@@ -747,7 +702,90 @@ async function handleExchange(exchangeEvent) {
 
 }
 
-//xml格式化函数
+/**
+ * tg通知前置处理
+ * @param videoid 视频id
+ * @param key 状态plan/livestart/liveend/recorderstart/recorderend/rclonetrue/rclonefalse
+ * @param text 需要发送的消息
+ * @param timeout null或者延迟 单位:s
+ * @param coverUrl 图片Url
+ */
+async function tgnotice(videoId, key, text, timeout, coverUrl) {
+    switch (key) {
+        case "liveend":
+        case "rclonetrue":
+        case "rclonefalse":
+            const videoData = await axiosGet("videos", videoId)
+            const values = Object.values(videoData.snippet.thumbnails)
+
+            coverUrl ||= values[values.length - 1].url;
+
+            console.log(key + "_" + coverUrl);
+
+            if (key === "liveend") text = `🔴 <b><a href="https://www.youtube.com/channel/${videoData.snippet.channelId}">${videoData.snippet.channelTitle}</a></b> <code>>></code> 直播结束！\n标题 <code>:</code> <i><a href="https://www.youtube.com/watch?v=${videoId}">${videoData.snippet.title}</a></i>\n时间 <code>:</code> <b>${moment(videoData.liveStreamingDetails.actualStartTime).format('(z)YYYY/MM/DD (HH:mm:ss')} --> ${moment(videoData.liveStreamingDetails.actualEndTime).format('HH:mm:ss)')}</b>`;
+            if (key === "rclonetrue") text = `🎊 <b><a href="https://www.youtube.com/channel/${videoData.snippet.channelId}">${videoData.snippet.channelTitle}</a></b> <code>>></code> 上传成功！\n标题 <code>:</code> <i><a href="https://www.youtube.com/watch?v=${videoId}">${videoData.snippet.title}</a></i>\n时间 <code>:</code> <b>${moment(videoData.liveStreamingDetails.actualStartTime).format('(z)YYYY/MM/DD (HH:mm:ss')} --> ${videoData.liveStreamingDetails?.actualEndTime ? moment(videoData.liveStreamingDetails.actualEndTime).format('HH:mm:ss)') : moment().format('HH:mm:ss) -->')}</b>`;
+            if (key === "rclonefalse") text = `🚧 <b><a href="https://www.youtube.com/channel/${videoData.snippet.channelId}">${videoData.snippet.channelTitle}</a></b> <code>>></code> 上传失败！\n标题 <code>:</code> <i><a href="https://www.youtube.com/watch?v=${videoId}">${videoData.snippet.title}</a></i>\n时间 <code>:</code> <b>${moment(videoData.liveStreamingDetails.actualStartTime).format('(z)YYYY/MM/DD (HH:mm:ss')} --> ${videoData.liveStreamingDetails?.actualEndTime ? moment(videoData.liveStreamingDetails.actualEndTime).format('HH:mm:ss)') : moment().format('HH:mm:ss) -->')}</b>`;
+            
+            if (key === "rclonefalse"||key === "rclonetrue") key = "rclone";
+
+            break;
+        default:
+            break;
+    }
+    complexSendMessage(videoId, key, text, timeout, coverUrl)
+
+}
+
+/**
+ * YouTube Data API负载均衡
+ * 每请求500次切换一个api key
+ * 通过api获取相关信息并返回
+ * @param key 状态videos/channels/messages
+ * @param videoId 视频id
+ * @param channelId 频道id
+ * @param liveChatId 聊天室id
+ * @param PageToken 评论PageToken
+ */
+async function axiosGet(key, videoId, channelId, liveChatId, PageToken) {
+    currentkey++;
+    YDA_KEY = YDA_KEYS[Math.floor(currentkey/500) % YDA_KEYS.length];
+
+    let videoData;
+    let channelData;
+    let messagesData;
+
+    switch (key) {
+        case "videos":
+            await axios.get(`${YDA_URL}videos?part=snippet%2Cstatistics%2CliveStreamingDetails&id=${videoId}&key=${YDA_KEY}`, {
+                headers: { 'Accept': 'application/json' }
+            })
+            .then(response => { videoData = response.data.items[0] })
+            .catch(error => { console.error(`[${moment().format()}](videos): ${error}`) });
+            break;
+        case "channels":
+            await axios.get(`${YDA_URL}channels?part=snippet%2Cstatistics&id=${channelId}&key=${YDA_KEY}`, {
+                headers: { 'Accept': 'application/json' }
+            })
+            .then(response => { channelData = response.data.items[0] })
+            .catch(error => { console.error(`[${moment().format()}](channels): ${error}`) });
+            break;
+        case "messages":
+            await axios.get(`${YDA_URL}liveChat/messages?liveChatId=${liveChatId}&part=id%2Csnippet%2CauthorDetails${PageToken ? '&pageToken=' + PageToken : ''}&key=${YDA_KEY}`, {
+                headers: { 'Accept': 'application/json' }
+            })
+            .then(response => { messagesData = response.data })
+            .catch(error => { console.error(`[${moment().format()}](messages): ${error}`) });
+            break;
+        default:
+            break;
+    }
+
+    return videoData || channelData || messagesData
+}
+
+/**
+ * 将信息格式化为xml适应的信息
+ */
 function escapeXml(unsafe) {
 
     return unsafe.replace(/[<>&'"]/g, function(c) {
@@ -766,49 +804,15 @@ function escapeXml(unsafe) {
     });
 }
 
-//YouTube Data API负载均衡
-function ydakeyLoadBalanced() {
-    currentkey++;
-    //console.log(currentkey);
-    YDA_KEY = YDA_KEYS[Math.floor(currentkey/500) % YDA_KEYS.length];
-}
-
 /**
- * tg通知前置处理
- * @param videoid 视频id
- * @param key 状态plan/livestart/liveend/recorderstart/recorderend/rclonetrue/rclonefalse
- * @param text 需要发送的消息
- * @param timeout null或者延迟 单位:s
- * @param coverUrl 图片Url
- */
-async function tgnotice(videoId, key, text, timeout, coverUrl) {
-    switch (key) {
-        case "liveend":
-        case "rclonetrue":
-        case "rclonefalse":
-            ydakeyLoadBalanced()
-            await axios.get(`${YDA_URL}videos?part=snippet%2CliveStreamingDetails&id=${videoId}&key=${YDA_KEY}`, {
-                headers: { 'Accept': 'application/json' }
-            })
-            .then(response => { 
-                const a = response.data.items[0]
-                const values = Object.values(a.snippet.thumbnails)
-
-                coverUrl ||= values[values.length - 1].url;
-
-                if (key === "liveend") text = `🔴 <b><a href="https://www.youtube.com/channel/${a.snippet.channelId}">${a.snippet.channelTitle}</a></b> <code>>></code> 直播结束！\n标题 <code>:</code> <i><a href="https://www.youtube.com/watch?v=${videoId}">${a.snippet.title}</a></i>\n时间 <code>:</code> <b>${moment(a.liveStreamingDetails.actualStartTime).format('(z)[YYYY/MM/DD] HH:mm:ss')} --> ${moment(a.liveStreamingDetails.actualEndTime).format('HH:mm:ss')}</b>`;
-                if (key === "rclonetrue") text = `🎊 <b><a href="https://www.youtube.com/channel/${a.snippet.channelId}">${a.snippet.channelTitle}</a></b> <code>>></code> 上传成功！\n标题 <code>:</code> <i><a href="https://www.youtube.com/watch?v=${videoId}">${a.snippet.title}</a></i>\n时间 <code>:</code> <b>${moment(a.liveStreamingDetails.actualStartTime).format('(z)[YYYY/MM/DD] HH:mm:ss')} --> ${a.liveStreamingDetails?.actualEndTime ? moment(a.liveStreamingDetails.actualEndTime).format('HH:mm:ss') : moment().format('HH:mm:ss -->')}</b>`;
-                if (key === "rclonefalse") text = `🚧 <b><a href="https://www.youtube.com/channel/${a.snippet.channelId}">${a.snippet.channelTitle}</a></b> <code>>></code> 上传失败！\n标题 <code>:</code> <i><a href="https://www.youtube.com/watch?v=${videoId}">${a.snippet.title}</a></i>\n时间 <code>:</code> <b>${moment(a.liveStreamingDetails.actualStartTime).format('(z)[YYYY/MM/DD] HH:mm:ss')} --> ${a.liveStreamingDetails?.actualEndTime ? moment(a.liveStreamingDetails.actualEndTime).format('HH:mm:ss') : moment().format('HH:mm:ss -->')}</b>`;
-                
-                if (key === "rclonefalse"||key === "rclonetrue") key = "rclone";
-            })
-            .catch(error => { console.error(`[${moment().format()}](tgnotice): ${error}`) });
-            break;
-        default:
-            break;
-    }
-    complexSendMessage(videoId, key, text, timeout, coverUrl)
-
+ * 获取https信息错误时写日志
+ * @param content 信息格式化json输出
+ */ 
+function Log(content) {
+    fs.appendFile(logFile, JSON.stringify(content, null, 2) + '\n', (err) => {
+        if (err) throw err;
+        console.log('The match was appended to log.txt!');
+    });
 }
 
 export default isMainRunning;
