@@ -94,7 +94,7 @@ async function start() {
             channelName: youtuber.channelName,
             definition: youtuber.definition ?? "best",
             autoRecorder: youtuber.autoRecorder ?? true,
-            isStreamlink: youtuber.autoRecorder,
+            isStreamlink: youtuber.autoRecorder ?? true,
             beforeScheduledStartTime: null,
             beforeVideoId: null,
             status: null,

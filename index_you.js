@@ -38,13 +38,16 @@ const queueExchange = [];
 // 队列，用于过滤重复
 const queueChannelId = [];
 
+//调试用，autoRecorder：默认是否录制。status：标识运行状态。isStreamlink：手动设置是否录制。
 /* const event = {
     channelId: 'UC1opHUrw8rvnsadT-iGp7Cg',
     channelName: 'MinatoAqua',
     definition: 'best',
+    autoRecorder: true,
     isStreamlink: true,
     beforeScheduledStartTime: null,
     beforeVideoId: null,
+    status: null,
 }
 main(event); */
 
@@ -719,8 +722,6 @@ async function tgnotice(videoId, key, text, timeout, coverUrl) {
             const values = Object.values(videoData.snippet.thumbnails)
 
             coverUrl ||= values[values.length - 1].url;
-
-            console.log(key + "_" + coverUrl);
 
             if (key === "liveend") text = `🔴 <b><a href="https://www.youtube.com/channel/${videoData.snippet.channelId}">${videoData.snippet.channelTitle}</a></b> <code>>></code> 直播结束！\n标题 <code>:</code> <i><a href="https://www.youtube.com/watch?v=${videoId}">${videoData.snippet.title}</a></i>\n时间 <code>:</code> <b>${moment(videoData.liveStreamingDetails.actualStartTime).format('(z)YYYY/MM/DD (HH:mm:ss')} --> ${moment(videoData.liveStreamingDetails.actualEndTime).format('HH:mm:ss)')}</b>`;
             if (key === "rclonetrue") text = `🎊 <b><a href="https://www.youtube.com/channel/${videoData.snippet.channelId}">${videoData.snippet.channelTitle}</a></b> <code>>></code> 上传成功！\n标题 <code>:</code> <i><a href="https://www.youtube.com/watch?v=${videoId}">${videoData.snippet.title}</a></i>\n时间 <code>:</code> <b>${moment(videoData.liveStreamingDetails.actualStartTime).format('(z)YYYY/MM/DD (HH:mm:ss')} --> ${videoData.liveStreamingDetails?.actualEndTime ? moment(videoData.liveStreamingDetails.actualEndTime).format('HH:mm:ss)') : moment().format('HH:mm:ss) -->')}</b>`;
