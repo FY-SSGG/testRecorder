@@ -220,6 +220,7 @@ async function main(event) {
                         assPath: assPath,
                         definition: definition,
                         videoId: videoId,
+                        channelId: channelId,
                         coverUrl:coverUrl
                     }
                     runbash(rcloneEvent)
@@ -482,6 +483,7 @@ async function handleBash(rcloneEvent) {
     const xmlPath = rcloneEvent.xmlPath;
     const assPath = rcloneEvent.assPath;
     const videoId = rcloneEvent.videoId;
+    const channelId = rcloneEvent.channelId;
     const definition = rcloneEvent.definition;
     let coverUrl = rcloneEvent.coverUrl;
     
@@ -533,37 +535,41 @@ async function handleBash(rcloneEvent) {
         let nfoContent;
         
         if (YDA_KEY) {
-            let channelData
-            let videoData
-            videoData = await axiosGet("videos", videoId);
-            channelData = await axiosGet("channels", videoId, videoData.snippet.channelId);
+            let channelData;
+            let videoData;
 
-            coverUrl = Object.values(videoData.snippet.thumbnails)[Object.values(videoData.snippet.thumbnails).length - 1].url;
-            let thumbUrl = Object.values(channelData.snippet.thumbnails)[Object.values(channelData.snippet.thumbnails).length - 1].url; 
+            videoData = await axiosGet("videos", videoId);
+            if (videoData.snippet) {
+                coverUrl = Object.values(videoData.snippet.thumbnails)[Object.values(videoData.snippet.thumbnails).length - 1].url;
+            }
+
+            channelData = await axiosGet("channels", videoId, channelId);
+            let thumbUrl = Object.values(channelData.snippet.thumbnails)[Object.values(channelData.snippet.thumbnails).length - 1].url;
+
             nfoContent = `<?xml version="1.0" encoding="UTF-8"?>
 <movie>
-    <title>${escapeXml(videoData.snippet?.title)}</title>
-    <userrating>${videoData.statistics?.viewCount ? ( 10 * videoData.statistics.likeCount / videoData.statistics.viewCount ).toFixed(2) : ''}</userrating>
-    <plot>${escapeXml(videoData.snippet?.description)}</plot>
+    <title>${escapeXml(videoData?.snippet?.title)}</title>
+    <userrating>${videoData?.statistics?.viewCount ? ( 10 * videoData?.statistics.likeCount / videoData?.statistics.viewCount ).toFixed(2) : ''}</userrating>
+    <plot>${escapeXml(videoData?.snippet?.description ?? "私享视频")}</plot>
     <description>${escapeXml(channelData.snippet?.description)}</description>
     <mpaa>PG</mpaa>
     <genre>Live</genre>
-    <genre>${videoData.snippet?.defaultAudioLanguage}</genre>
+    <genre>${videoData?.snippet?.defaultAudioLanguage}</genre>
     <genre>${channelData.snippet?.customUrl}</genre>
     <country>${(channelData.snippet?.country || '').toUpperCase()}</country>
-    <premiered>${moment(videoData.liveStreamingDetails?.actualStartTime).format('YYYY-MM-DD')}</premiered>
-    <director>${escapeXml(videoData.snippet?.channelTitle)}</director>
+    <premiered>${moment(videoData?.liveStreamingDetails?.actualStartTime).format('YYYY-MM-DD')}</premiered>
+    <director>${escapeXml(videoData?.snippet?.channelTitle)}</director>
     <writer>${escapeXml(channelData.snippet?.title)}</writer>
     <actor>
-        <name>${escapeXml(videoData.snippet?.channelTitle)}</name>
+        <name>${escapeXml(videoData?.snippet?.channelTitle)}</name>
         <type>Actor</type>
         <thumb>${thumbUrl}</thumb>
     </actor>
-    <viewCount>${videoData.statistics?.viewCount}</viewCount>
-    <likeCount>${videoData.statistics?.likeCount}</likeCount>
-    <scheduledStartTime>${videoData.liveStreamingDetails?.scheduledStartTime}</scheduledStartTime>
-    <actualStartTime>${videoData.liveStreamingDetails?.actualStartTime}</actualStartTime>
-    <actualEndTime>${videoData.liveStreamingDetails?.actualEndTime}</actualEndTime>
+    <viewCount>${videoData?.statistics?.viewCount}</viewCount>
+    <likeCount>${videoData?.statistics?.likeCount}</likeCount>
+    <scheduledStartTime>${videoData?.liveStreamingDetails?.scheduledStartTime}</scheduledStartTime>
+    <actualStartTime>${videoData?.liveStreamingDetails?.actualStartTime}</actualStartTime>
+    <actualEndTime>${videoData?.liveStreamingDetails?.actualEndTime}</actualEndTime>
     <subscriberCount>${channelData.statistics?.subscriberCount}</subscriberCount>
     <thumb>${coverUrl}</thumb>
     <website>https://www.youtube.com/watch?v=${videoId}</website>
