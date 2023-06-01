@@ -724,17 +724,26 @@ async function tgnotice(videoId, key, text, timeout, coverUrl) {
         case "liveend":
         case "rclonetrue":
         case "rclonefalse":
-            const videoData = await axiosGet("videos", videoId)
-            const values = Object.values(videoData.snippet.thumbnails)
-
-            coverUrl ||= values[values.length - 1].url;
-
-            if (key === "liveend") text = `🔴 <b><a href="https://www.youtube.com/channel/${videoData.snippet.channelId}">${videoData.snippet.channelTitle}</a></b> <code>>></code> 直播结束！\n标题 <code>:</code> <i><a href="https://www.youtube.com/watch?v=${videoId}">${videoData.snippet.title}</a></i>\n时间 <code>:</code> <b>${moment(videoData.liveStreamingDetails.actualStartTime).format('(z)YYYY/MM/DD (HH:mm:ss')} --> ${moment(videoData.liveStreamingDetails.actualEndTime).format('HH:mm:ss)')}</b>`;
-            if (key === "rclonetrue") text = `🎊 <b><a href="https://www.youtube.com/channel/${videoData.snippet.channelId}">${videoData.snippet.channelTitle}</a></b> <code>>></code> 上传成功！\n标题 <code>:</code> <i><a href="https://www.youtube.com/watch?v=${videoId}">${videoData.snippet.title}</a></i>\n时间 <code>:</code> <b>${moment(videoData.liveStreamingDetails.actualStartTime).format('(z)YYYY/MM/DD (HH:mm:ss')} --> ${videoData.liveStreamingDetails?.actualEndTime ? moment(videoData.liveStreamingDetails.actualEndTime).format('HH:mm:ss)') : moment().format('HH:mm:ss) -->')}</b>`;
-            if (key === "rclonefalse") text = `🚧 <b><a href="https://www.youtube.com/channel/${videoData.snippet.channelId}">${videoData.snippet.channelTitle}</a></b> <code>>></code> 上传失败！\n标题 <code>:</code> <i><a href="https://www.youtube.com/watch?v=${videoId}">${videoData.snippet.title}</a></i>\n时间 <code>:</code> <b>${moment(videoData.liveStreamingDetails.actualStartTime).format('(z)YYYY/MM/DD (HH:mm:ss')} --> ${videoData.liveStreamingDetails?.actualEndTime ? moment(videoData.liveStreamingDetails.actualEndTime).format('HH:mm:ss)') : moment().format('HH:mm:ss) -->')}</b>`;
-            
-            if (key === "rclonefalse"||key === "rclonetrue") key = "rclone";
-
+            try {
+                const videoData = await axiosGet("videos", videoId);
+                const values = videoData?.snippet ? Object.values(videoData.snippet.thumbnails) : null;
+                
+                coverUrl ||= values[values.length - 1].url;
+                
+                if (videoData?.snippet) {
+                    if (key === "liveend") text = `🔴 <b><a href="https://www.youtube.com/channel/${videoData.snippet.channelId}">${videoData.snippet.channelTitle}</a></b> <code>>></code> 直播结束！\n标题 <code>:</code> <i><a href="https://www.youtube.com/watch?v=${videoId}">${videoData.snippet.title}</a></i>\n时间 <code>:</code> <b>${moment(videoData.liveStreamingDetails.actualStartTime).format('(z)YYYY/MM/DD (HH:mm:ss')} --> ${moment(videoData.liveStreamingDetails.actualEndTime).format('HH:mm:ss)')}</b>`;
+                    if (key === "rclonetrue") text = `🎊 <b><a href="https://www.youtube.com/channel/${videoData.snippet.channelId}">${videoData.snippet.channelTitle}</a></b> <code>>></code> 上传成功！\n标题 <code>:</code> <i><a href="https://www.youtube.com/watch?v=${videoId}">${videoData.snippet.title}</a></i>\n时间 <code>:</code> <b>${moment(videoData.liveStreamingDetails.actualStartTime).format('(z)YYYY/MM/DD (HH:mm:ss')} --> ${videoData.liveStreamingDetails?.actualEndTime ? moment(videoData.liveStreamingDetails.actualEndTime).format('HH:mm:ss)') : moment().format('HH:mm:ss) -->')}</b>`;
+                    if (key === "rclonefalse") text = `🚧 <b><a href="https://www.youtube.com/channel/${videoData.snippet.channelId}">${videoData.snippet.channelTitle}</a></b> <code>>></code> 上传失败！\n标题 <code>:</code> <i><a href="https://www.youtube.com/watch?v=${videoId}">${videoData.snippet.title}</a></i>\n时间 <code>:</code> <b>${moment(videoData.liveStreamingDetails.actualStartTime).format('(z)YYYY/MM/DD (HH:mm:ss')} --> ${videoData.liveStreamingDetails?.actualEndTime ? moment(videoData.liveStreamingDetails.actualEndTime).format('HH:mm:ss)') : moment().format('HH:mm:ss) -->')}</b>`;
+                } else {
+                    if (key === "liveend") text = `🔴 <b><a href="https://www.youtube.com/watch?v=${videoId}">${videoId}</a></b> <code>>></code> 直播结束！\n已经设为私享内容`;
+                    if (key === "rclonetrue") text = `🎊 <b><a href="https://www.youtube.com/watch?v=${videoId}">${videoId}</a></b> <code>>></code> 上传成功！\n已经设为私享内容`;
+                    if (key === "rclonefalse") text = `🚧 <b><a href="https://www.youtube.com/watch?v=${videoId}">${videoId}</a></b> <code>>></code> 上传失败！\n已经设为私享内容`;
+                }
+                
+                if (key === "rclonefalse"||key === "rclonetrue") key = "rclone";
+            } catch (error) {
+                    console.error(error);
+            }
             break;
         default:
             break;
