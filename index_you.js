@@ -539,7 +539,7 @@ async function handleBash(rcloneEvent) {
             let videoData;
 
             videoData = await axiosGet("videos", videoId);
-            if (videoData.snippet) {
+            if (videoData?.snippet) {
                 coverUrl = Object.values(videoData.snippet.thumbnails)[Object.values(videoData.snippet.thumbnails).length - 1].url;
             }
 
